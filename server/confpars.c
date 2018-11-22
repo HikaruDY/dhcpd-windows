@@ -3,12 +3,12 @@
    Parser for dhcpd config file... */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -810,6 +810,11 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 	      case LEASE_ID_FORMAT:
 		token = next_token (&val, (unsigned *)0, cfile);
 		parse_lease_id_format(cfile);
+		break;
+
+	      case PERCENT:
+		/* Used by the MA so simply ignore... */
+		skip_to_semi (cfile);
 		break;
 
 	      default:
@@ -2264,7 +2269,9 @@ int parse_class_declaration (cp, cfile, group, type)
 		data.data = &data.buffer -> data [0];
 		data.terminated = 1;
 
-		tname = type ? "implicit-vendor-class" : "implicit-user-class";
+		tname = (type == CLASS_TYPE_VENDOR) ?
+		  "implicit-vendor-class" : "implicit-user-class";
+
 	} else if (type == CLASS_TYPE_CLASS) {
 		tname = val;
 	} else {
@@ -2275,7 +2282,7 @@ int parse_class_declaration (cp, cfile, group, type)
 		name = dmalloc (strlen (tname) + 1, MDL);
 		if (!name)
 			log_fatal ("No memory for class name %s.", tname);
-		strcpy (name, val);
+		strcpy (name, tname);
 	} else
 		name = NULL;
 
@@ -5099,6 +5106,17 @@ parse_ia_na_declaration(struct parse *cfile) {
 			iasubopt_dereference(&iaaddr, MDL);
 			continue;
 		}
+#ifdef EUI_64
+		if ((pool->ipv6_pond->use_eui_64) &&
+		    (!valid_for_eui_64_pool(pool, &ia->iaid_duid, IAID_LEN,
+					    &iaaddr->addr))) {
+			log_error("Non EUI-64 lease in EUI-64 pool: %s"
+				  " discarding it",
+				  pin6_addr(&iaaddr->addr));
+			iasubopt_dereference(&iaaddr, MDL);
+			continue;
+		}
+#endif
 
 		/* remove old information */
 		if (cleanup_lease6(ia_na_active, pool,
@@ -5961,13 +5979,16 @@ parse_ia_pd_declaration(struct parse *cfile) {
 			executable_statement_dereference (&on_star[i], MDL);
 		}
 			
-		/* find the pool this address is in */
+		/* Find the pool this address is in. We need to check prefix
+		 * lengths too in case the pool has been reconfigured. */
 		pool = NULL;
-		if (find_ipv6_pool(&pool, D6O_IA_PD,
-				   &iapref->addr) != ISC_R_SUCCESS) {
+		if ((find_ipv6_pool(&pool, D6O_IA_PD,
+				   &iapref->addr) != ISC_R_SUCCESS) ||
+		     (pool->units != iapref->plen)) {
 			inet_ntop(AF_INET6, &iapref->addr,
 				  addr_buf, sizeof(addr_buf));
-			log_error("No pool found for prefix %s", addr_buf);
+			log_error("No pool found for prefix %s/%d", addr_buf,
+				  iapref->plen);
 			iasubopt_dereference(&iapref, MDL);
 			continue;
 		}

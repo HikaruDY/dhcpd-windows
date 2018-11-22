@@ -272,6 +272,7 @@ am__relativize = \
     dir1=`echo "$$dir1" | sed -e "$$sed_rest"`; \
   done; \
   reldir="$$dir2"
+A = @A@
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
@@ -285,7 +286,14 @@ AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
 BINDCONFIG = @BINDCONFIG@
 BINDDIR = @BINDDIR@
+BINDIOMUX = @BINDIOMUX@
+BINDLIBDNSDIR = @BINDLIBDNSDIR@
+BINDLIBIRSDIR = @BINDLIBIRSDIR@
+BINDLIBISCCFGDIR = @BINDLIBISCCFGDIR@
+BINDLIBISCDIR = @BINDLIBISCDIR@
+BINDLT = @BINDLT@
 BINDSRCDIR = @BINDSRCDIR@
+BINDSUBDIR = @BINDSUBDIR@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -294,7 +302,10 @@ CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DHLIBS = @DHLIBS@
 DISTCHECK_ATF_CONFIGURE_FLAG = @DISTCHECK_ATF_CONFIGURE_FLAG@
+DISTCHECK_LIBBIND_CONFIGURE_FLAG = @DISTCHECK_LIBBIND_CONFIGURE_FLAG@
+DISTCHECK_LIBTOOL_CONFIGURE_FLAG = @DISTCHECK_LIBTOOL_CONFIGURE_FLAG@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -324,10 +335,12 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
+Q = @Q@
 RANLIB = @RANLIB@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
+UNITTESTS = @UNITTESTS@
 VERSION = @VERSION@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
@@ -383,19 +396,21 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 SUBDIRS = .
-BINDLIBDIR = @BINDDIR@/lib
 AM_CPPFLAGS = $(ATF_CFLAGS) -DUNIT_TEST -I$(top_srcdir)/includes \
 	-I@BINDDIR@/include -I$(top_srcdir) -DLOCALSTATEDIR='"."'
-EXTRA_DIST = Atffile
+EXTRA_DIST = Atffile Kyuafile
 DHCPSRC = ../dhcp.c ../bootp.c ../confpars.c ../db.c ../class.c      \
           ../failover.c ../omapi.c ../mdb.c ../stables.c ../salloc.c \
           ../ddns.c ../dhcpleasequery.c ../dhcpv6.c ../mdb6.c        \
           ../ldap.c ../ldap_casa.c ../dhcpd.c ../leasechain.c
 
-DHCPLIBS = $(top_builddir)/common/libdhcp.a $(top_builddir)/omapip/libomapi.a \
-          $(top_builddir)/dhcpctl/libdhcpctl.a $(BINDLIBDIR)/libirs.a \
-	  $(BINDLIBDIR)/libdns.a $(BINDLIBDIR)/libisccfg.a \
-	  $(BINDLIBDIR)/libisc.a
+DHCPLIBS = $(top_builddir)/common/libdhcp.@A@ \
+	  $(top_builddir)/omapip/libomapi.@A@ \
+          $(top_builddir)/dhcpctl/libdhcpctl.@A@ \
+	  $(BINDLIBIRSDIR)/libirs.@A@ \
+	  $(BINDLIBDNSDIR)/libdns.@A@ \
+	  $(BINDLIBISCCFGDIR)/libisccfg.@A@ \
+	  $(BINDLIBISCDIR)/libisc.@A@
 
 ATF_TESTS = $(am__append_1)
 @HAVE_ATF_TRUE@dhcpd_unittests_SOURCES = $(DHCPSRC) simple_unittest.c
@@ -1048,12 +1063,15 @@ info:
 	@echo "ATF_LIBS=$(ATF_LIBS)"
 
 @HAVE_ATF_TRUE@check: $(ATF_TESTS)
-@HAVE_ATF_TRUE@	-cp -n $(top_srcdir)/server/tests/Atffile Atffile
+@HAVE_ATF_TRUE@	@if test $(top_srcdir) != ${top_builddir}; then \
+@HAVE_ATF_TRUE@		cp $(top_srcdir)/server/tests/Atffile Atffile; \
+@HAVE_ATF_TRUE@		cp $(top_srcdir)/server/tests/Kyuafile Kyuafile; \
+@HAVE_ATF_TRUE@	fi
 @HAVE_ATF_TRUE@	sh ${top_builddir}/tests/unittest.sh
 
 @HAVE_ATF_TRUE@distclean-local:
 @HAVE_ATF_TRUE@	@if test $(top_srcdir) != ${top_builddir}; then \
-@HAVE_ATF_TRUE@		rm -f Atffile; \
+@HAVE_ATF_TRUE@		rm -f Atffile Kyuafile; \
 @HAVE_ATF_TRUE@	fi
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.

@@ -3,12 +3,12 @@
    DHCP Protocol engine. */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2018 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -84,6 +84,8 @@ const int dhcp_type_name_max = ((sizeof dhcp_type_names) / sizeof (char *));
 #if defined (TRACING)
 # define send_packet trace_packet_send
 #endif
+
+static TIME leaseTimeCheck(TIME calculated, TIME alternate);
 
 void
 dhcp (struct packet *packet) {
@@ -1061,6 +1063,20 @@ void dhcpdecline (packet, ms_nulltp)
 		lease_dereference (&lease, MDL);
 }
 
+#if defined(RELAY_PORT)
+u_int16_t dhcp_check_relayport(packet)
+	struct packet *packet;
+{
+	if (lookup_option(&agent_universe,
+			  packet->options,
+			  RAI_RELAY_PORT) != NULL) {
+		return (packet->client_port);
+	}
+
+	return (0);
+}
+#endif
+
 void dhcpinform (packet, ms_nulltp)
 	struct packet *packet;
 	int ms_nulltp;
@@ -1082,6 +1098,9 @@ void dhcpinform (packet, ms_nulltp)
 	struct interface_info *interface;
 	int result, h_m_client_ip = 0;
 	struct host_decl  *host = NULL, *hp = NULL, *h;
+#if defined(RELAY_PORT)
+	u_int16_t relay_port = 0;
+#endif
 #if defined (DEBUG_INFORM_HOST)
 	int h_w_fixed_addr = 0;
 #endif
@@ -1143,6 +1162,10 @@ void dhcpinform (packet, ms_nulltp)
 		log_info("%s: ignored (null source address).", msgbuf);
 		return;
 	}
+
+#if defined(RELAY_PORT)
+	relay_port = dhcp_check_relayport(packet);
+#endif
 
 	/* Find the subnet that the client is on. 
 	 * CC: Do the link selection / subnet selection
@@ -1231,11 +1254,33 @@ void dhcpinform (packet, ms_nulltp)
 
 	maybe_return_agent_options(packet, options);
 
-	/* Execute statements in scope starting with the subnet scope. */
+	/* Execute statements network statements starting at the subnet level */
 	execute_statements_in_scope(NULL, packet, NULL, NULL,
 				    packet->options, options,
 				    &global_scope, subnet->group,
 				    NULL, NULL);
+
+	/* If we have ciaddr, find its lease so we can find its pool. */
+	if (zeroed_ciaddr == ISC_FALSE) {
+		struct lease* cip_lease = NULL;
+
+		find_lease_by_ip_addr (&cip_lease, cip, MDL);
+	
+		/* Overlay with pool options if ciaddr mapped to a lease. */	
+		if (cip_lease) {
+		 	if (cip_lease->pool && cip_lease->pool->group) {
+				execute_statements_in_scope(
+					NULL, packet, NULL, NULL,
+				    	packet->options, options,
+				    	&global_scope,
+				     	cip_lease->pool->group,
+					cip_lease->pool->shared_network->group,
+					NULL);
+			}
+
+			lease_dereference (&cip_lease, MDL);
+		}
+	}
  		
 	/* Execute statements in the class scopes. */
 	for (i = packet->class_count; i > 0; i--) {
@@ -1672,7 +1717,11 @@ void dhcpinform (packet, ms_nulltp)
 	 */
 	if (!raw.ciaddr.s_addr && gip.len) {
 		memcpy(&to.sin_addr, gip.iabuf, 4);
+#if defined(RELAY_PORT)
+		to.sin_port = relay_port ? relay_port : local_port;
+#else
 		to.sin_port = local_port;
+#endif
 		raw.flags |= htons(BOOTP_BROADCAST);
 	} else {
 		gip.len = 0;
@@ -1729,6 +1778,9 @@ void nak_lease (packet, cip, network_group)
 	unsigned char nak = DHCPNAK;
 	struct packet outgoing;
 	unsigned i;
+#if defined(RELAY_PORT)
+	u_int16_t relay_port = 0;
+#endif
 	struct option_state *options = (struct option_state *)0;
 	struct option_cache *oc = (struct option_cache *)0;
 	struct option_state *eval_options = NULL;
@@ -1757,6 +1809,10 @@ void nak_lease (packet, cip, network_group)
 	save_option (&dhcp_universe, options, oc);
 	option_cache_dereference (&oc, MDL);
 		     
+#if defined(RELAY_PORT)
+	relay_port = dhcp_check_relayport(packet);
+#endif
+
 	/* Set DHCP_MESSAGE to whatever the message is */
 	if (!option_cache_allocate (&oc, MDL)) {
 		log_error ("No memory for DHCPNAK message type.");
@@ -1905,7 +1961,11 @@ void nak_lease (packet, cip, network_group)
 	if (raw.giaddr.s_addr) {
 		to.sin_addr = raw.giaddr;
 		if (raw.giaddr.s_addr != htonl (INADDR_LOOPBACK))
+#if defined(RELAY_PORT)
+			to.sin_port = relay_port ? relay_port : local_port;
+#else
 			to.sin_port = local_port;
+#endif
 		else
 			to.sin_port = remote_port; /* for testing. */
 
@@ -2125,7 +2185,7 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 	struct in_addr from;
 	TIME remaining_time;
 	struct iaddr cip;
-#if defined(DELAYED_ACK) && !defined(DHCP4o6)
+#if defined(DELAYED_ACK)
 	/* By default we don't do the enqueue */
 	isc_boolean_t enqueue = ISC_FALSE;
 #endif
@@ -2856,8 +2916,15 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 			 * the desired lease time upon renewal.
 			 */
 			if (offer == DHCPACK) {
-				lt->tstp = cur_time + lease_time +
-						(new_lease_time / 2);
+				if (lease_time == INFINITE_TIME) {
+					lt->tstp = MAX_TIME;
+				} else {
+					lt->tstp =
+						leaseTimeCheck(
+						    (cur_time + lease_time
+						     + (new_lease_time / 2)),
+						    MAX_TIME - 1);
+				}
 
 				/* If we reduced the potential expiry time,
 				 * make sure we don't offer an old-expiry-time
@@ -2874,12 +2941,16 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 		}
 #endif /* FAILOVER_PROTOCOL */
 
-		/* If the lease duration causes the time value to wrap,
-		   use the maximum expiry time. */
-		if (cur_time + lease_time < cur_time)
-			state -> offered_expiry = MAX_TIME - 1;
-		else
-			state -> offered_expiry = cur_time + lease_time;
+		if (lease_time == INFINITE_TIME) {
+			state->offered_expiry = MAX_TIME;
+		} else {
+			/* If the lease duration causes the time value to wrap,
+			 use the maximum expiry time. */
+			state->offered_expiry
+				= leaseTimeCheck(cur_time + lease_time,
+						 MAX_TIME - 1);
+		}
+
 		if (when)
 			lt -> ends = when;
 		else
@@ -3062,6 +3133,8 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 			lt -> client_hostname [d1.len] = 0;
 		}
 		data_string_forget (&d1, MDL);
+		/* hostname changed, can't reuse lease */
+		lease->cannot_reuse = 1;
 	}
 
 	/* Record the hardware address, if given... */
@@ -3126,7 +3199,7 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 			commit = 0;
 		}
 
-#if !defined(DELAYED_ACK) || defined(DHCP4o6)
+#if !defined(DELAYED_ACK)
 		/* Install the new information on 'lt' onto the lease at
 		 * 'lease'.  If this is a DHCPOFFER, it is a 'soft' promise,
 		 * if it is a DHCPACK, it is a 'hard' binding, so it needs
@@ -3138,7 +3211,7 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 		if ((use_old_lease == 0) &&
 		    !supersede_lease(lease, lt, commit,
 				     offer == DHCPACK, offer == DHCPACK, 0)) {
-#else /* defined(DELAYED_ACK) && !defined(DHCP4o6) */
+#else /* defined(DELAYED_ACK) */
 		/*
 		 * If there already isn't a need for a lease commit, and we
 		 * can just answer right away, set a flag to indicate this.
@@ -3490,7 +3563,8 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 	/* If this is a DHCPOFFER, ping the lease address before actually
 	   sending the offer. */
 	if (offer == DHCPOFFER && !(lease -> flags & STATIC_LEASE) &&
-	    ((cur_time - lease_cltt) > 60) &&
+	    (((cur_time - lease_cltt) > 60) ||
+             (lease->binding_state == FTS_ABANDONED)) &&
 	    (!(oc = lookup_option (&server_universe, state -> options,
 				   SV_PING_CHECKS)) ||
 	     evaluate_boolean_option_cache (&ignorep, packet, lease,
@@ -3535,7 +3609,7 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 		++outstanding_pings;
 	} else {
   		lease->cltt = cur_time;
-#if defined(DELAYED_ACK) && !defined(DHCP4o6)
+#if defined(DELAYED_ACK)
 		if (enqueue)
 			delayed_ack_enqueue(lease);
 		else 
@@ -3714,6 +3788,9 @@ void dhcp_reply (lease)
 	int result;
 	struct lease_state *state = lease -> state;
 	int nulltp, bootpp, unicastp = 1;
+#if defined(RELAY_PORT)
+	u_int16_t relay_port = 0;
+#endif
 	struct data_string d1;
 	const char *s;
 
@@ -3883,11 +3960,19 @@ void dhcp_reply (lease)
 #endif
 	memset (to.sin_zero, 0, sizeof to.sin_zero);
 
+#if defined(RELAY_PORT)
+	relay_port = dhcp_check_relayport(state->packet);
+#endif
+
 	/* If this was gatewayed, send it back to the gateway... */
 	if (raw.giaddr.s_addr) {
 		to.sin_addr = raw.giaddr;
 		if (raw.giaddr.s_addr != htonl (INADDR_LOOPBACK))
+#if defined(RELAY_PORT)
+			to.sin_port = relay_port ? relay_port : local_port;
+#else
 			to.sin_port = local_port;
+#endif
 		else
 			to.sin_port = remote_port; /* For debugging. */
 
@@ -4149,6 +4234,7 @@ int find_lease (struct lease **lp,
 	 * preference, so the first one is the best one.
 	 */
 	while (uid_lease) {
+		isc_boolean_t do_release = !packet->raw->ciaddr.s_addr;
 #if defined (DEBUG_FIND_LEASE)
 		log_info ("trying next lease matching client id: %s",
 			  piaddr (uid_lease -> ip_addr));
@@ -4179,6 +4265,9 @@ int find_lease (struct lease **lp,
 			log_info ("wrong network segment: %s",
 				  piaddr (uid_lease -> ip_addr));
 #endif
+			/* Allow multiple leases using the same UID
+			   on different subnetworks. */
+			do_release = ISC_FALSE;
 			goto n_uid;
 		}
 
@@ -4194,7 +4283,7 @@ int find_lease (struct lease **lp,
 			if (uid_lease -> n_uid)
 				lease_reference (&next,
 						 uid_lease -> n_uid, MDL);
-			if (!packet -> raw -> ciaddr.s_addr)
+			if (do_release)
 				release_lease (uid_lease, packet);
 			lease_dereference (&uid_lease, MDL);
 			if (next) {
@@ -4559,6 +4648,7 @@ int find_lease (struct lease **lp,
 #if defined (DEBUG_FIND_LEASE)
 			log_info ("not choosing requested address (!).");
 #endif
+			lease_dereference (&ip_lease, MDL);
 		} else {
 #if defined (DEBUG_FIND_LEASE)
 			log_info ("choosing lease on requested address.");
@@ -4567,7 +4657,6 @@ int find_lease (struct lease **lp,
 			if (lease -> host)
 				host_dereference (&lease -> host, MDL);
 		}
-		lease_dereference (&ip_lease, MDL);
 	}
 
 	/* If we got a lease that matched the client identifier, we may want
@@ -4871,8 +4960,11 @@ int allocate_lease (struct lease **lp, struct packet *packet,
 		 * "no free leases" error when the last lease has been
 		 * offered, but it's not exactly broken either.
 		 */
-		if (!candl || (candl -> ends > cur_time))
+		if (!candl ||
+	            (candl->binding_state != FTS_ABANDONED &&
+		     (candl->ends > cur_time))) {
 			continue;
+		}
 
 		if (!lease) {
 			lease = candl;
@@ -5519,7 +5611,10 @@ void use_host_decl_name(struct packet* packet,
  *  c. The lease "age" is less than that allowed by the threshold
  *  d. DNS updates are not being performed on the new lease.
  *  e. Lease has not been otherwise disqualified for reuse (Ex: billing class
- *  changed)
+ *  or hostname changed)
+ *  f. The host declaration has changed (either a new one was added
+ *  or an older one was found due to something like a change in the uid)
+ *  g. The UID or hardware address have changed.
  *
  * Clients may renew leases using full DORA cycles or just RAs. This means
  * that reusability must be checked when acking both DISCOVERs and REQUESTs.
@@ -5534,6 +5629,8 @@ void use_host_decl_name(struct packet* packet,
  * \param new_lease candidate new lease to associate with the client
  * \param lease current lease associated with the client
  * \param options option state to search and update
+ *
+ * \return 1 if the lease can be reused.
  */
 int
 reuse_lease (struct packet* packet,
@@ -5546,10 +5643,20 @@ reuse_lease (struct packet* packet,
 	/* To even consider reuse all of the following must be true:
 	 * 1 - reuse hasn't already disqualified
 	 * 2 - current lease is active
-	 * 3 - DNS info hasn't changed */
+	 * 3 - DNS info hasn't changed
+	 * 4 - the host declaration hasn't changed
+	 * 5 - the uid hasn't changed
+	 * 6 - the hardware address hasn't changed */
 	if ((lease->cannot_reuse == 0) &&
 	    (lease->binding_state == FTS_ACTIVE) &&
-	    (new_lease->ddns_cb == NULL)) {
+	    (new_lease->ddns_cb == NULL) &&
+	    (lease->host == new_lease->host) &&
+	    (lease->uid_len == new_lease->uid_len) &&
+	    (memcmp(lease->uid, new_lease->uid, lease->uid_len) == 0) &&
+	    (lease->hardware_addr.hlen == new_lease->hardware_addr.hlen) &&
+	    (memcmp(&lease->hardware_addr.hbuf[0],
+		    &new_lease->hardware_addr.hbuf[0],
+		    lease->hardware_addr.hlen) == 0)) {
 		int thresh = DEFAULT_CACHE_THRESHOLD;
 		struct option_cache* oc = NULL;
 		struct data_string d1;
@@ -5583,7 +5690,7 @@ reuse_lease (struct packet* packet,
 			/* Note new_lease->starts is really just cur_time */
 			lease_age = new_lease->starts - lease->starts;
 
-			/* Is the lease is young enough to reuse? */
+			/* Is the lease young enough to reuse? */
 			if (lease_age <= limit) {
 				/* Restore expiry to its original value */
 				state->offered_expiry = lease->ends;
@@ -5598,6 +5705,13 @@ reuse_lease (struct packet* packet,
 
 					binding_scope_reference(&lease->scope,
 							new_lease->scope, MDL);
+				}
+
+				/* restore client hostname, fixes 42849. */
+				if (new_lease->client_hostname) {
+					lease->client_hostname =
+					  new_lease->client_hostname;
+					new_lease->client_hostname = NULL;
 				}
 
 				/* We're cleared to reuse it */
@@ -5615,4 +5729,30 @@ reuse_lease (struct packet* packet,
 	 * ensuing REQUEST, otherwise clear the flag. */
 	lease->cannot_reuse = (!reusable && offer == DHCPOFFER);
 	return (reusable);
+}
+
+/* \brief Validates a proposed value for use as a lease time
+ *
+ * Convenience function used for catching calculeated lease
+ * times that overflow 4-byte times used in v4 protocol.
+ *
+ * We use variables of type TIME in lots of places, which on
+ * 64-bit systems is 8 bytes while on 32-bit OSs it is int32_t,
+ * so we have all sorts of fun places to mess things up.
+ * This function checks a calculated lease time for and if it
+ * is unsuitable for use as a lease time, the given alternate
+ * value is returned.
+ * \param calculated
+ * \param alternate
+ *
+ * \returen either the calculated value if it is valid, or
+ * the alternate value supplied
+ */
+TIME leaseTimeCheck(TIME calculated, TIME alternate) {
+    if ((sizeof(TIME) > 4 && calculated >= INFINITE_TIME) ||
+        (calculated < cur_time)) {
+        return (alternate);
+    }
+
+    return (calculated);
 }

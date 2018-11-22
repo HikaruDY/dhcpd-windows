@@ -3,12 +3,12 @@
    Turn data structures into printable text. */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2018 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -132,7 +132,7 @@ char *print_base64 (const unsigned char *buf, unsigned len,
 	b = dmalloc (bl + 1, file, line);
 	if (!b)
 		return (char *)0;
-	
+
 	i = 0;
 	s = b;
 	while (i != len) {
@@ -199,15 +199,15 @@ void print_lease (lease)
 
 	log_debug ("  Lease %s",
 	       piaddr (lease -> ip_addr));
-	
+
 	t = gmtime (&lease -> starts);
 	strftime (tbuf, sizeof tbuf, "%Y/%m/%d %H:%M:%S", t);
 	log_debug ("  start %s", tbuf);
-	
+
 	t = gmtime (&lease -> ends);
 	strftime (tbuf, sizeof tbuf, "%Y/%m/%d %H:%M:%S", t);
 	log_debug ("  end %s", tbuf);
-	
+
 	if (lease -> hardware_addr.hlen)
 		log_debug ("    hardware addr = %s",
 			   print_hw_addr (lease -> hardware_addr.hbuf [0],
@@ -215,7 +215,7 @@ void print_lease (lease)
 					  &lease -> hardware_addr.hbuf [1]));
 	log_debug ("  host %s  ",
 	       lease -> host ? lease -> host -> name : "<none>");
-}	
+}
 
 #if defined (DEBUG_PACKET)
 void dump_packet_option (struct option_cache *oc,
@@ -301,7 +301,7 @@ void dump_raw (buf, len)
 /*
           1         2         3         4         5         6         7
 01234567890123456789012345678901234567890123456789012345678901234567890123
-280: 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00   .................  
+280: 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00   .................
 */
 
 	memset(lbuf, ' ', 79);
@@ -383,15 +383,27 @@ void print_hex_only (len, data, limit, buf)
 	unsigned limit;
 	char *buf;
 {
-	unsigned i;
+	char *bufptr = buf;
+	int byte = 0;
 
-	if ((buf == NULL) || (limit < 3))
+	if (data == NULL || bufptr == NULL || limit == 0) {
 		return;
-
-	for (i = 0; (i < limit / 3) && (i < len); i++) {
-		sprintf(&buf[i*3], "%02x:", data[i]);
 	}
-	buf[(i * 3) - 1] = 0;
+
+	if (((len == 0) || ((len * 3) > limit))) {
+		*bufptr = 0x0;
+		return;
+	}
+
+	for ( ; byte < len; ++byte) {
+		if (byte > 0) {
+			*bufptr++ = ':';
+		}
+
+		sprintf(bufptr, "%02x", data[byte]);
+		bufptr += 2;
+	}
+
 	return;
 }
 
@@ -434,7 +446,7 @@ void print_hex_or_string (len, data, limit, buf)
 /*
  * print a string as either hex or text
  * using static buffers to hold the output
- * 
+ *
  * len - length of data
  * data - input data
  * limit - length of buf
@@ -487,7 +499,7 @@ char *print_dotted_quads (len, data)
 	char *s;
 
 	s = &dq_buf [0];
-	
+
 	i = 0;
 
 	/* %Audit% Loop bounds checks to 21 bytes. %2004.06.17,Safe%
@@ -542,7 +554,7 @@ static unsigned print_subexpression (expr, buf, len)
 			return 3;
 		}
 		break;
-		  
+
 	      case expr_match:
 		if (len > 7) {
 			strcpy (buf, "(match)");
@@ -760,7 +772,7 @@ static unsigned print_subexpression (expr, buf, len)
 	      case expr_binary_xor:
 		s = "^";
 		goto binop;
-		
+
 	      case expr_not:
 		if (len > 6) {
 			rv = 5;
@@ -1167,7 +1179,7 @@ void print_expression (name, expr)
 }
 
 int token_print_indent_concat (FILE *file, int col,  int indent,
-			       const char *prefix, 
+			       const char *prefix,
 			       const char *suffix, ...)
 {
 	va_list list;
@@ -1197,7 +1209,7 @@ int token_print_indent_concat (FILE *file, int col,  int indent,
 		s = va_arg (list, char *);
 	}
 	va_end (list);
-	
+
 	col = token_print_indent (file, col, indent,
 				  prefix, suffix, t);
 	dfree (t, MDL);
@@ -1292,191 +1304,6 @@ void indent_spaces (FILE *file, int indent)
 	for (i = 0; i < indent; i++)
 		fputc (' ', file);
 }
-
-#if defined (NSUPDATE)
-#if defined (DEBUG_DNS_UPDATES)
-/*
- * direction outbound (messages to the dns server)
- *           inbound  (messages from the dns server)
- * ddns_cb is the control block associated with the message
- * result is the result from the dns code.  For outbound calls
- * it is from the call to pass the message to the dns library.
- * For inbound calls it is from the event returned by the library.
- *
- * For outbound messages we print whatever we think is interesting
- * from the control block.
- * For inbound messages we only print the transaction id pointer
- * and the result and expect that the user will match them up as
- * necessary.  Note well: the transaction information is opaque to
- * us so we simply print the pointer to it.  This should be sufficient
- * to match requests and replys in a short sequence but is awkward
- * when trying to use it for longer sequences.
- */
-void
-print_dns_status (int direction,
-		  struct dhcp_ddns_cb *ddns_cb,
-		  isc_result_t result)
-{
-	char obuf[1024];
-	char *s = obuf, *end = &obuf[sizeof(obuf)-2];
-	char *en;
-	const char *result_str;
-	char ddns_address[
-		sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
-
-	if (direction == DDNS_PRINT_INBOUND) {
-		log_info("DDNS reply: id ptr %p, result: %s",
-			 ddns_cb->transaction, isc_result_totext(result));
-		return;
-	}
-
-	/* 
-	 * To avoid having to figure out if any of the strings
-	 * aren't NULL terminated, just 0 the whole string
-	 */
-	memset(obuf, 0, 1024);
-
-	en = "DDNS request: id ptr ";
-	if (s + strlen(en) + 16 < end) {
-		sprintf(s, "%s%p", en, ddns_cb->transaction);
-		s += strlen(s);
-	} else {
-		goto bailout;
-	}
-
-	switch (ddns_cb->state) {
-	case DDNS_STATE_ADD_FW_NXDOMAIN:
-		en = " add forward ";
-		break;
-	case DDNS_STATE_ADD_FW_YXDHCID:
-		en = " modify forward ";
-		break;
-
-	case DDNS_STATE_ADD_PTR:
-		en = " add reverse ";
-		break;
-
-	case DDNS_STATE_REM_FW_YXDHCID:
-		en = " remove forward ";
-		break;
-
-	case DDNS_STATE_REM_FW_NXRR:
-		en = " remove rrset ";
-		break;
-
-	case DDNS_STATE_REM_PTR:
-		en = " remove reverse ";
-		break;
-
-	case DDNS_STATE_CLEANUP:
-		en = " cleanup ";
-		break;
-
-	default:
-		en = " unknown state ";
-		break;
-	}
-
-	switch (ddns_cb->state) {
-	case DDNS_STATE_ADD_FW_NXDOMAIN:
-	case DDNS_STATE_ADD_FW_YXDHCID:
-	case DDNS_STATE_REM_FW_YXDHCID:
-	case DDNS_STATE_REM_FW_NXRR:
-		strcpy(ddns_address, piaddr(ddns_cb->address));
-		if (s + strlen(en) + strlen(ddns_address) +
-		    ddns_cb->fwd_name.len + 5 < end) {
-			sprintf(s, "%s%s for %.*s", en, ddns_address,
-				ddns_cb->fwd_name.len,
-				ddns_cb->fwd_name.data);
-			s += strlen(s);
-		} else {
-			goto bailout;
-		}
-		break;
-
-	case DDNS_STATE_ADD_PTR:
-	case DDNS_STATE_REM_PTR:
-		if (s + strlen(en) + ddns_cb->fwd_name.len +
-		    ddns_cb->rev_name.len + 5 < end) {
-			sprintf(s, "%s%.*s for %.*s", en,
-				ddns_cb->fwd_name.len,
-				ddns_cb->fwd_name.data,
-				ddns_cb->rev_name.len,
-				ddns_cb->rev_name.data);
-			s += strlen(s);
-		} else {
-			goto bailout;
-		}
-		break;
-
-	case DDNS_STATE_CLEANUP:
-	default:
-		if (s + strlen(en) < end) {
-			sprintf(s, "%s", en);
-			s += strlen(s);
-		} else {
-			goto bailout;
-		}
-		break;
-	}
-
-	en = " zone: ";
-	if (s + strlen(en) + strlen((char *)ddns_cb->zone_name) < end) {
-		sprintf(s, "%s%s", en, ddns_cb->zone_name);
-		s += strlen(s);
-	} else {
-		goto bailout;
-	}
-
-	en = " dhcid: ";
-	if (ddns_cb->dhcid.len > 0) {
-		if (s + strlen(en) + ddns_cb->dhcid.len-1 < end) {
-			strcpy(s, en);
-			s += strlen(s);
-			strncpy(s, (char *)ddns_cb->dhcid.data+1,
-				ddns_cb->dhcid.len-1);
-			s += strlen(s);
-		} else {
-			goto bailout;
-		}
-	} else {
-		en = " dhcid: <empty>";
-		if (s + strlen(en) < end) {
-			strcpy(s, en);
-			s += strlen(s);
-		} else {
-			goto bailout;
-		}
-	}
-
-	en = " ttl: ";
-	if (s + strlen(en) + 10 < end) {
-		sprintf(s, "%s%ld", en, ddns_cb->ttl);
-		s += strlen(s);
-	} else {
-		goto bailout;
-	}
-		
-	en = " result: ";
-	result_str = isc_result_totext(result);
-	if (s + strlen(en) + strlen(result_str) < end) {
-		sprintf(s, "%s%s", en, result_str);
-		s += strlen(s);
-	} else {
-		goto bailout;
-	}
-
- bailout:
-	/*
-	 * We either finished building the string or ran out
-	 * of space, print whatever we have in case it is useful
-	 */
-	log_info("%s", obuf);
-
-	return;
-}
-#endif
-#endif /* NSUPDATE */
 
 /* Format the given time as "A; # B", where A is the format
  * used by the parser, and B is the local time, for humans.
@@ -1611,4 +1438,43 @@ char *format_lease_id(const unsigned char *s, unsigned len,
 			break;
 	}
 	return (idstr);
+}
+
+/*
+ * Convert a relative path name to an absolute path name
+ *
+ * Not all versions of realpath() support NULL for
+ * the second parameter and PATH_MAX isn't defined
+ * on all systems.  For the latter, we'll make what
+ * ought to be a big enough buffer and let it fly.
+ * If passed an absolute path it should return it
+ * an allocated buffer.
+ */
+char *absolute_path(const char *orgpath) {
+	char *abspath = NULL;
+	if (orgpath) {
+#ifdef PATH_MAX
+		char buf[PATH_MAX];
+#else
+		char buf[2048];
+#endif
+		errno = 0;
+                if (realpath(orgpath, buf) == NULL) {
+			const char* errmsg = strerror(errno);
+                        log_fatal("Failed to get realpath for %s: %s",
+				  orgpath, errmsg);
+		}
+
+		/* dup the result into an allocated buffer */
+		abspath = dmalloc(strlen(buf) + 1, MDL);
+		if (abspath == NULL)  {
+			log_fatal("No memory for filename:%s\n",
+				  buf);
+		}
+
+		memcpy (abspath, buf, strlen(buf));
+		abspath[strlen(buf)] = 0x0;
+	}
+
+	return (abspath);
 }

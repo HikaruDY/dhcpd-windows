@@ -3,12 +3,12 @@
    OMAPI object interfaces for the DHCP server. */
 
 /*
- * Copyright (c) 2004-2016 Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -42,7 +42,6 @@ OMAPI_OBJECT_ALLOC (shared_network, struct shared_network,
 OMAPI_OBJECT_ALLOC (group_object, struct group_object, dhcp_type_group)
 OMAPI_OBJECT_ALLOC (dhcp_control, dhcp_control_object_t, dhcp_type_control)
 
-omapi_object_type_t *dhcp_type_interface;
 omapi_object_type_t *dhcp_type_group;
 omapi_object_type_t *dhcp_type_shared_network;
 omapi_object_type_t *dhcp_type_subnet;
