@@ -1,0 +1,22 @@
+# Generated
+Release
+*.obj
+*.exp
+*.pdb
+*.cache
+
+# VisualStudio
+*.suo
+*.vcxproj.user
+*.vcxproj.filters
+*.sdf
+*.opensdf
+*.ipch
+*.log
+*.tlog
+
+# OS related extra files
+Git.cmd
+Thumbs.db
+.DS_Store
+
