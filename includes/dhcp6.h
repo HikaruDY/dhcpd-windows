@@ -3,11 +3,11 @@
    DHCPv6 Protocol structures... */
 
 /*
- * Copyright (c) 2006-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2006-2017 by Internet Systems Consortium, Inc. ("ISC")
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -115,16 +115,18 @@
 #define D6O_V6_PCP_SERVER			86 /* RFC7291 */
 #define D6O_DHCPV4_MSG				87 /* RFC7341 */
 #define D6O_DHCP4_O_DHCP6_SERVER		88 /* RFC7341 */
+/* not yet assigned but next free value */
+#define D6O_RELAY_SOURCE_PORT			135 /* I-D */
 
-/* 
+/*
  * Status Codes, from RFC 3315 section 24.4, and RFC 3633, 5007, 5460.
  */
 #define STATUS_Success		 0
 #define STATUS_UnspecFail	 1
 #define STATUS_NoAddrsAvail	 2
 #define STATUS_NoBinding	 3
-#define STATUS_NotOnLink	 4 
-#define STATUS_UseMulticast	 5 
+#define STATUS_NotOnLink	 4
+#define STATUS_UseMulticast	 5
 #define STATUS_NoPrefixAvail	 6
 #define STATUS_UnknownQueryType	 7
 #define STATUS_MalformedQuery	 8
@@ -132,8 +134,8 @@
 #define STATUS_NotAllowed	10
 #define STATUS_QueryTerminated	11
 
-/* 
- * DHCPv6 message types, defined in section 5.3 of RFC 3315 
+/*
+ * DHCPv6 message types, defined in section 5.3 of RFC 3315
  */
 #define DHCPV6_SOLICIT		    1
 #define DHCPV6_ADVERTISE	    2
@@ -181,8 +183,8 @@ extern const int dhcpv6_type_name_max;
 /* Offset into LQ_QUERY's where Option spaces commence. */
 #define LQ_QUERY_OFFSET 17
 
-/* 
- * DHCPv6 well-known multicast addressess, from section 5.1 of RFC 3315 
+/*
+ * DHCPv6 well-known multicast addressess, from section 5.1 of RFC 3315
  */
 #define All_DHCP_Relay_Agents_and_Servers "FF02::1:2"
 #define All_DHCP_Servers "FF05::1:3"
@@ -219,8 +221,8 @@ extern const int dhcpv6_type_name_max;
 #define LQ6_MAX_RT       10
 #define LQ6_MAX_RC        5
 
-/* 
- * Normal packet format, defined in section 6 of RFC 3315 
+/*
+ * Normal packet format, defined in section 6 of RFC 3315
  */
 struct dhcpv6_packet {
 	unsigned char msg_type;
@@ -231,8 +233,8 @@ struct dhcpv6_packet {
 /* Offset into DHCPV6 Reply packets where Options spaces commence. */
 #define REPLY_OPTIONS_INDEX 4
 
-/* 
- * Relay packet format, defined in section 7 of RFC 3315 
+/*
+ * Relay packet format, defined in section 7 of RFC 3315
  */
 struct dhcpv6_relay_packet {
 	unsigned char msg_type;
@@ -277,3 +279,18 @@ struct dhcpv4_over_dhcpv6_packet {
 #define IRT_DEFAULT	86400
 #define IRT_MINIMUM	600
 
+#define EUI_64_ID_LEN 12  /* 2 for duid-type, 2 for hardware type, 8 for ID */
+#define IAID_LEN 4
+
+/* Offsets with iasubopt wire data of data values for IA_NA and TA */
+#define IASUBOPT_NA_ADDR_OFFSET		0
+#define IASUBOPT_NA_PREF_OFFSET		16
+#define IASUBOPT_NA_VALID_OFFSET	20
+#define IASUBOPT_NA_LEN			24
+
+/* Offsets with iasubopt wire data of data values for PD */
+#define IASUBOPT_PD_PREF_OFFSET		0
+#define IASUBOPT_PD_VALID_OFFSET	4
+#define IASUBOPT_PD_PREFLEN_OFFSET	8
+#define IASUBOPT_PD_PREFIX_OFFSET	9
+#define IASUBOPT_PD_LEN			25

@@ -1,4 +1,5 @@
-AC_INIT([DHCP],[4.3.4],[dhcp-users@isc.org])
+AC_INIT([DHCP],[4.4.1],[dhcp-users@isc.org])
+
 
 # we specify "foreign" to avoid having to have the GNU mandated files,
 # like AUTHORS, COPYING, and such
@@ -37,8 +38,20 @@ BINDCONFIG=
 if test "$cross_compiling" = "yes"; then
 	BINDCONFIG="--host=$host"
 fi
+# Pass CFLAGS and co. $ac_configure_args looks like "'arg1' 'arg2' ..."
+# and as there can be a space inside an argument some magic is required.
+# This sets $1 ... $N to my_configure_args, arg1 ... argN
+eval "set my_configure_args $ac_configure_args"
+# remove my_configure_args, i.e., the guard against empty $ac_configure_args
+shift
+# iterate on arguments and copying 'arg' when it begins by an upper case
+for a
+do
+	case $a in
+		[[A-Z]]*) BINDCONFIG="$BINDCONFIG '$a'" ;;
+	esac
+done
 AC_SUBST(BINDCONFIG)
-AM_CONDITIONAL(CROSS_COMPILING, test "$cross_compiling" = "yes")
 
 # POSIX doesn't include the IPv6 Advanced Socket API and glibc hides
 # parts of the IPv6 Advanced Socket API as a result.  This is stupid
@@ -129,14 +142,13 @@ if test "$enable_tracing" != "no" ; then
 		  [Define to include server activity tracing support.])
 fi
 
-# Delayed-ack feature support (experimental).
+# Delayed-ack feature support.
 AC_ARG_ENABLE(delayed_ack,
-	AS_HELP_STRING([--enable-delayed-ack],[queues multiple DHCPACK replies (default is no)]))
-if test "$enable_delayed_ack" = "yes"; then
+	AS_HELP_STRING([--enable-delayed-ack],[queues multiple DHCPACK replies (default is yes)]))
+if test "$enable_delayed_ack" != "no"; then
+    enable_delayed_ack="yes"
 	AC_DEFINE([DELAYED_ACK], [1],
 		  [Define to queue multiple DHCPACK replies per fsync.])
-else
-    enable_delayed_ack="no"
 fi
 
 # DHCPv6 optional compile-time feature.
@@ -158,12 +170,23 @@ if test "$enable_dhcpv4o6" = "yes"; then
 	if test "$enable_dhcpv6" = "no"; then
 		AC_MSG_ERROR([dhcpv4o6 requires dhcpv6])
 	fi
-	# DHCPv4o6 is not yet compatible with delayed-ack
-	if test "$enable_delayed_ack" = "yes"; then
-		AC_MSG_ERROR([dhcpv4o6 is not compatible with delayed-ack])
-	fi
 	AC_DEFINE([DHCP4o6], [1], 
 		  [Define to 1 to include DHCPv4 over DHCPv6 support.])
+else
+    # so we can report below
+    enable_dhcpv4o6="no"
+fi
+
+# Relay port (draft-ietf-dhc-relay-port-10.txt) optional compile-time feature.
+AC_ARG_ENABLE(relay-port,
+	AS_HELP_STRING([--enable-relay-port],[enable support for relay port (default is no)]))
+# Relay port is off by default (for now)
+if test "$enable_relay_port" = "yes"; then
+	AC_DEFINE([RELAY_PORT], [1],
+		  [Define to 1 to include relay port support.])
+else
+	# so we can report below
+	enable_relay_port="no"
 fi
 
 # PARANOIA is off by default (until we can test it with all features)
@@ -201,16 +224,6 @@ AC_ARG_ENABLE(use_sockets,
 if test "$enable_use_sockets" = "yes"; then
 	AC_DEFINE([USE_SOCKETS], [1],
 		[Define to 1 to use the standard BSD socket API.])
-fi
-
-# Try to hnadle incorrect byte order for secs field
-# This is off by default
-AC_ARG_ENABLE(secs_byteorder,
-	AS_HELP_STRING([--enable-secs-byteorder],[Correct bad byteorders in the secs field (default is no).]))
-
-if test "$enable_secs_byteorder" = "yes" ; then
-	AC_DEFINE([SECS_BYTEORDER], [1],
-		[Define to correct bad byteorders in secs field.])
 fi
 
 # Include the PID in the log messages.  This is useful when there may
@@ -294,13 +307,12 @@ elif test "$atf_path" != "no" ; then
                 ATF_BIN=$atf_path/bin
         fi
 
-        if test ! -x $ATF_BIN/atf-run  -o  ! -x $ATF_BIN/atf-report ; then
-            AC_MSG_WARN([atf-run,atf-report not found, assuming they are in your path])
-        fi
+        UNITTESTS=tests
 
         AC_SUBST(ATF_CFLAGS)
         AC_SUBST(ATF_LDFLAGS)
         AC_SUBST(ATF_BIN)
+        AC_SUBST(UNITTESTS)
     fi
 fi
 
@@ -326,6 +338,13 @@ case "$localstatedir" in
 		localstatedir=/var
 		;;
 esac
+
+# Default server configuration file.
+AC_ARG_WITH(srv-conf-file,
+	AS_HELP_STRING([--with-srv-conf-file=PATH],[Default file containing dhcpd configuration
+		        (default is typically /etc/dhcpd.conf)]),
+	AC_DEFINE_UNQUOTED([_PATH_DHCPD_CONF], ["$withval"],
+			   [Default file containing dhcpd configuration.]))
 
 # Allow specification of alternate state files
 AC_ARG_WITH(srv-lease-file,
@@ -513,6 +532,7 @@ AC_CHECK_HEADERS(ifaddrs.h)
 # figure out what IPv4 interface code to use
 AC_CHECK_HEADERS(linux/types.h)  # needed for linux/filter.h on old systems
 
+relay_port_supported="no"
 AC_CHECK_HEADER(linux/filter.h, DO_LPF=1, ,
 [
 #ifdef HAVE_LINUX_TYPES_H
@@ -523,6 +543,7 @@ if test -n "$DO_LPF"
 then
 	AC_DEFINE([HAVE_LPF], [1],
 		  [Define to 1 to use the Linux Packet Filter interface code.])
+	relay_port_supported="yes"
 else
 	AC_CHECK_HEADER(sys/dlpi.h, DO_DLPI=1)
 	if test -n "$DO_DLPI"
@@ -536,7 +557,14 @@ else
 			AC_DEFINE([HAVE_BPF], [1],
 				   [Define to 1 to use the
 				   Berkeley Packet Filter interface code.])
+			relay_port_supported="yes"
 		fi
+	fi
+fi
+
+if test "$enable_relay_port" = "yes"; then
+	if test "$relay_port_supported" != "yes"; then
+		AC_MSG_ERROR([--enable-relay-port requires BPF or LPF])
 	fi
 fi
 
@@ -600,6 +628,16 @@ AC_CHECK_FUNCS(strlcat)
 # For HP/UX we need -lipv6 for if_nametoindex, perhaps others.
 AC_SEARCH_LIBS(if_nametoindex, [ipv6])
 
+# For some Solaris nanosleep is found by BIND in librt
+have_nanosleep="no"
+AC_CHECK_FUNC(nanosleep, have_nanosleep="yes")
+if test "$have_nanosleep" = "no"; then
+	AC_CHECK_LIB(rt, nanosleep, have_nanosleep="rt")
+fi
+if test "$have_nanosleep" = "rt"; then
+	LIBS="-lrt $LIBS"
+fi
+
 # check for /dev/random (declares HAVE_DEV_RANDOM)
 AC_MSG_CHECKING(for random device)
 AC_ARG_WITH(randomdev,
@@ -630,6 +668,45 @@ else
 	fi
 	BINDCONFIG="$BINDCONFIG --with-randomdev=$use_randomdev"
 fi
+
+BINDIOMUX="--disable-kqueue --disable-epoll --disable-devpoll"
+# check kqueue/epoll/devpoll alternative to select
+AC_ARG_ENABLE(kqueue,
+	AS_HELP_STRING([--enable-kqueue],[use BSD kqueue (default is no)]),
+	want_kqueue="$enableval", want_kqueue="no")
+if test "$want_kqueue" = "yes"; then
+	BINDIOMUX="--enable-kqueue"
+	AC_MSG_WARN([--enable-kqueue is not supported: it may lead to issues such as server looping])
+fi
+AC_ARG_ENABLE(epoll,
+	AS_HELP_STRING([--enable-epoll],[use Linux epoll (default is no)]),
+	want_epoll="$enableval", want_epoll="no")
+if test "$want_epoll" = "yes"; then
+	BINDIOMUX="--enable-epoll"
+	AC_MSG_WARN([--enable-epoll is not supported: it may lead to issues such as server looping])
+fi
+AC_ARG_ENABLE(devpoll,
+	AS_HELP_STRING([--enable-devpoll],[use /dev/poll (default is no)]),
+	want_devpoll="$enableval", want_devpoll="no")
+if test "$want_devpoll" = "yes"; then
+	BINDIOMUX="--enable-devpoll"
+	AC_MSG_WARN([--enable-devpoll is not supported: it may lead to issues such as server looping])
+fi
+AC_SUBST(BINDIOMUX)
+
+# general extra bind configure arguments
+AC_ARG_WITH(bind-extra-config,
+	AS_HELP_STRING([--with-bind-extra-config],[configure bind librairies
+		       with some extra options (default is none)]),
+	use_xbindconfig="$withval", use_xbindconfig="")
+case "$use_xbindconfig" in
+yes|no|'')
+	;;
+*)
+	BINDCONFIG="$BINDCONFIG $use_xbindconfig"
+	AC_MSG_WARN([Most options to bind configure are not supported when used by ISC DHCP])
+	;;
+esac
 
 # see if there is a "sa_len" field in our interface information structure
 AC_CHECK_MEMBER(struct sockaddr.sa_len,
@@ -679,38 +756,157 @@ AC_CHECK_MEMBER(struct tpacket_auxdata.tp_vlan_tci,
     [AC_DEFINE([VLAN_TCI_PRESENT], [1], [tpacket_auxdata.tp_vlan_tci present])]
     ,, [#include <linux/if_packet.h>])
 
+# bind/Makefile.in is not from automake so we need 2 variables for bind dir
+BINDSUBDIR=
 BINDDIR=
 BINDSRCDIR=
+BINDLIBIRSDIR=
+BINDLIBDNSDIR=
+BINDLIBISCCFGDIR=
+BINDLIBISCDIR=
+DISTCHECK_LIBBIND_CONFIGURE_FLAG=
 AC_ARG_WITH(libbind,
-	AS_HELP_STRING([--with-libbind=PATH],[bind includes and libraries are in PATH
-		        (default is ./bind)]),
+	AS_HELP_STRING([--with-libbind=PATH],[bind includes and libraries are in PATH]),
 	use_libbind="$withval", use_libbind="no")
 case "$use_libbind" in
 yes)
-	BINDDIR="\${top_srcdir}/bind"
-	BINDSRCDIR="\${top_srcdir}/bind"
+	AC_MSG_ERROR([PATH is required in --with-libbind=PATH])
 	;;
 no)
-	BINDDIR="\${top_srcdir}/bind"
-	BINDSRCDIR="\${top_srcdir}/bind"
+	BINDSUBDIR="\${top_srcdir}/bind"
+	my_abs_srcdir=`cd $srcdir && pwd`
+	BINDDIR="${my_abs_srcdir}/bind"
+	if test ! -d "$srcdir/bind"; then
+		AC_MSG_ERROR([Where to find or build bind includes and libraries must be specified])
+	fi
+	if test -d "$srcdir/bind/bind9"; then
+		BINDSRCDIR="${my_abs_srcdir}/bind/bind9"
+	else
+		if test ! -f "$srcdir/bind/version.tmp"; then
+			AC_MSG_ERROR([Cannot find $srcdir/bind/version.tmp])
+		fi
+		. "$srcdir/bind/version.tmp"
+		bindversion=${MAJORVER}.${MINORVER}.${PATCHVER}${RELEASETYPE}${RELEASEVER}
+		BINDSRCDIR="${my_abs_srcdir}/bind/bind-$bindversion"
+	fi
+	AC_CONFIG_FILES([$srcdir/bind/Makefile])
+
+	BINDLIBIRSDIR="$BINDSRCDIR/lib/irs"
+	BINDLIBDNSDIR="$BINDSRCDIR/lib/dns"
+	BINDLIBISCCFGDIR="$BINDSRCDIR/lib/isccfg"
+	BINDLIBISCDIR="$BINDSRCDIR/lib/isc"
 	;;
 *)
-	BINDDIR="$use_libbind"
-	if test ! -d "$srcdir/bind"; then
-		# no bind directory, create it with a fake Makefile.in
-		# (AC_CONFIG_FILES and top Makefile refer to it so
-		# it must exits)
-		mkdir $srcdir/bind
-		cat > $srcdir/bind/Makefile.in << EOF
-# placeholder
-all check clean distclean distdir install uninstall:
-
-EOF
+	if test ! -d "$use_libbind"; then
+		AC_MSG_ERROR([Cannot find bind directory at $use_libbind])
 	fi
+	if test ! -d "$use_libbind/include" -o \
+	        ! -f "$use_libbind/include/isc/buffer.h"
+	then
+		AC_MSG_ERROR([Cannot find bind includes at $use_libbind/include])
+	fi
+	if test	! -d "$use_libbind/lib" -o \
+	        \( ! -f "$use_libbind/lib/libisc.a" -a \
+		   ! -f	"$use_libbind/lib/libisc.la" \)
+	then
+		AC_MSG_ERROR([Cannot find bind libraries at $use_libbind/lib])
+	fi
+	BINDDIR="$use_libbind"
+	BINDLIBIRSDIR="$BINDDIR/lib"
+	BINDLIBDNSDIR="$BINDDIR/lib"
+	BINDLIBISCCFGDIR="$BINDDIR/lib"
+	BINDLIBISCDIR="$BINDDIR/lib"	
+	DISTCHECK_LIBBIND_CONFIGURE_FLAG="--with-libbind=$use_libbind"
 	;;
 esac
+AC_SUBST(BINDSUBDIR)
 AC_SUBST(BINDDIR)
 AC_SUBST(BINDSRCDIR)
+AC_SUBST(BINDLIBIRSDIR)
+AC_SUBST(BINDLIBDNSDIR)
+AC_SUBST(BINDLIBISCCFGDIR)
+AC_SUBST(BINDLIBISCDIR)
+AC_SUBST(DISTCHECK_LIBBIND_CONFIGURE_FLAG)
+AM_CONDITIONAL(HAVE_BINDDIR, test "$use_libbind" = "no")
+
+#
+# GNU libtool support
+#
+case "$build_os" in
+	sunos*)
+		# Just set the maximum command line length for sunos
+		# as it otherwise takes a exceptionally long time to
+		# work it out. Required for libtool.
+
+		lt_cv_sys_max_cmd_len=4096
+		;;
+esac
+
+want_libtool="no"
+
+BINDLT=
+DISTCHECK_LIBTOOL_CONFIGURE_FLAG=
+AC_ARG_ENABLE(libtool,
+	AS_HELP_STRING([--enable-libtool],
+[use GNU libtool for dynamic shared libraries (default is no).]),
+	want_libtool="$enableval")
+
+if test "$use_libbind" != "no"; then
+	if test "$want_libtool" = "yes" -a \
+	        ! -f "$use_libbind/lib/libisc.la"
+	then
+		AC_MSG_ERROR([Cannot find dynamic libraries at $use_libbind/lib])
+	fi
+	if test "$want_libtool" = "no" -a \
+	        ! -f "$use_libbind/lib/libisc.a"
+	then
+		AC_MSG_ERROR([Cannot find static libraries at $use_libbind/lib])
+	fi
+fi
+
+
+if test "$want_libtool" = "yes"; then
+	AC_MSG_WARN([legacy configure is used but libtool is enabled. Trying to recover...])
+	# expand $ac_configure_args
+	eval "set my_configure_args $ac_configure_args"
+	shift
+	cd $srcdir; exec ./config+lt "$@"
+	AC_MSG_ERROR([Recovering failed])
+fi
+
+DHLIBS=LIBRARIES
+A=a
+
+AC_SUBST(DHLIBS)
+AC_SUBST(A)
+AC_SUBST(BINDLT)
+AC_SUBST(DISTCHECK_LIBTOOL_CONFIGURE_FLAG)
+
+# quoting in Makefile.am.in
+Q=@
+AC_SUBST(Q)
+
+# install bind includes and libraries
+
+want_install_bind="no"
+if test "$want_libtool" = "yes"; then
+	want_install_bind="yes"
+fi
+if test "$use_libbind" != "no"; then
+	want_install_bind="no"
+fi
+AC_ARG_ENABLE(bind_install,
+	AS_HELP_STRING([--enable-bind-install],
+[install bind includes and libraries (default is no).]),
+	want_install_bind="$enableval")
+if test "$want_install_bind" = "yes"; then
+        if test "$use_libbind" != "no"; then
+		AC_MSG_WARN([--enable-bind-install does nothing when --with-libbind is set])
+	fi
+elif test "$want_libtool" = "yes" -a "$use_libbind" = "no"; then
+	AC_MSG_WARN([embedded dynamic bind libraries must be installed])
+fi
+AM_CONDITIONAL(INSTALL_BIND, test "$want_install_bind" = "yes")
 
 # OpenLDAP support.
 AC_ARG_WITH(ldap,
@@ -805,22 +1001,26 @@ AC_C_FLEXIBLE_ARRAY_MEMBER
 
 AC_CONFIG_FILES([
   Makefile
-  $srcdir/bind/Makefile
   client/Makefile
   client/tests/Makefile
+  common/Makefile.am
   common/Makefile
   common/tests/Makefile
+  dhcpctl/Makefile.am
   dhcpctl/Makefile
   includes/Makefile
+  omapip/Makefile.am
   omapip/Makefile
   relay/Makefile
   server/Makefile
+  tests/Makefile.am
   tests/Makefile
   tests/unittest.sh
   server/tests/Makefile
   doc/devel/doxyfile
 ])
 AC_OUTPUT
+
 
 if test "$enable_dhcpv4o6" = "yes"; then
 	DHCP_VERSIONS="DHCPv4, DHCPv6 and DHCPv4-over-DHCPv6"
@@ -829,13 +1029,6 @@ elif test "$enable_dhcpv6" != "no"; then
 else
 	DHCP_VERSIONS="DHCPv4"
 fi
-
-(cd $srcdir
-    sh util/bindvar.sh
-    if test $? -ne 0; then
-        AC_MSG_ERROR([*** util/bindvar.sh failed])
-    fi
-)
 
 cat > config.report << END
 
@@ -861,6 +1054,8 @@ Features:
   binary-leases: $enable_binary_leases
   dhcpv6:        $enable_dhcpv6
   delayed-ack:   $enable_delayed_ack
+  dhcpv4o6:      $enable_dhcpv4o6
+  relay-port:    $enable_relay_port
 
 Developer:
   ATF unittests : $atf_path

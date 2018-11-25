@@ -16,12 +16,12 @@
    Sigh. */
 
 /*
- * Copyright (c) 2004,2007,2009,2014 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -55,14 +55,14 @@ void if_register_send (info)
 
 	/* Set up the address we're going to connect to. */
 	name.sin_family = AF_INET;
-	name.sin_port = local_port;
+	name.sin_port = relay_port ? relay_port : local_port;
 	name.sin_addr.s_addr = htonl (INADDR_BROADCAST);
 	memset (name.sin_zero, 0, sizeof (name.sin_zero));
 
 	/* List addresses on which we're listening. */
         if (!quiet_interface_discovery)
 		log_info ("Sending on %s, port %d",
-		      piaddr (info -> address), htons (local_port));
+		      piaddr (info -> address), htons (name.sin_port));
 	if ((sock = socket (AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0)
 		log_fatal ("Can't create dhcp socket: %m");
 

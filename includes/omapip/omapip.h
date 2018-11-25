@@ -3,13 +3,12 @@
    Definitions for the object management API and protocol... */
 
 /*
- * Copyright (c) 2009,2013-2014 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -556,7 +555,7 @@ isc_result_t omapi_object_handle (omapi_handle_t *, omapi_object_t *);
 isc_result_t omapi_handle_lookup (omapi_object_t **, omapi_handle_t);
 isc_result_t omapi_handle_td_lookup (omapi_object_t **, omapi_typed_data_t *);
 
-void * dmalloc (unsigned, const char *, int);
+void * dmalloc (size_t, const char *, int);
 void dfree (void *, const char *, int);
 #if defined (DEBUG_MEMORY_LEAKAGE) || defined (DEBUG_MALLOC_POOL) || \
 		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)

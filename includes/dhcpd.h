@@ -3,12 +3,12 @@
    Definitions for dhcpd... */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2018 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -70,7 +70,7 @@
 
 #include "arpa/nameser.h"
 
-#include "minires.h"
+#include "ns_name.h"
 
 struct hash_table;
 typedef struct hash_table group_hash_t;
@@ -470,9 +470,12 @@ struct packet {
 	 */
 	isc_boolean_t unicast;
 
-	/* Propogates server value SV_ECHO_CLIENT_ID so it is available
+	/* Propagates server value SV_ECHO_CLIENT_ID so it is available
          * in cons_options() */
 	int sv_echo_client_id;
+
+	/* Relay port check */
+	isc_boolean_t relay_source_port;
 };
 
 /*
@@ -799,13 +802,27 @@ struct lease_state {
 #define SV_SERVER_ID_CHECK		86
 #define SV_PREFIX_LEN_MODE		87
 #define SV_DHCPV6_SET_TEE_TIMES		88
+#define SV_ABANDON_LEASE_TIME		89
+#ifdef EUI_64
+#define SV_USE_EUI_64			90
+#define SV_PERSIST_EUI_64_LEASES	91
+#endif
+#if defined (FAILOVER_PROTOCOL)
+#define SV_CHECK_SECS_BYTE_ORDER	91
+#endif
+#define SV_DDNS_DUAL_STACK_MIXED_MODE	92
+#define SV_DDNS_GUARD_ID_MUST_MATCH 	93
+#define SV_DDNS_OTHER_GUARD_IS_DYNAMIC	94
+#define SV_RELEASE_ON_ROAM		95
+#define SV_LOCAL_ADDRESS6		96
+#define SV_BIND_LOCAL_ADDRESS6		97
 
 #if !defined (DEFAULT_PING_TIMEOUT)
 # define DEFAULT_PING_TIMEOUT 1
 #endif
 
 #if !defined (DEFAULT_DELAYED_ACK)
-# define DEFAULT_DELAYED_ACK 28  /* default SO_SNDBUF size / 576 bytes */
+# define DEFAULT_DELAYED_ACK 0  /* default 0 disables delayed acking */
 #endif
 
 #if !defined (DEFAULT_ACK_DELAY_SECS)
@@ -845,6 +862,10 @@ struct lease_state {
 
 #if !defined (MIN_LEASE_WRITE)
 # define MIN_LEASE_WRITE 15
+#endif
+
+#if !defined (DEFAULT_ABANDON_LEASE_TIME)
+# define DEFAULT_ABANDON_LEASE_TIME 86400
 #endif
 
 #define PLM_IGNORE 0
@@ -1127,6 +1148,7 @@ struct dhc6_addr {
 	/* Address state flags. */
 	#define DHC6_ADDR_DEPREFFED	0x01
 	#define DHC6_ADDR_EXPIRED	0x02
+	#define DHC6_ADDR_DECLINED	0x04
 	u_int8_t flags;
 
 	TIME starts;
@@ -1172,7 +1194,8 @@ enum dhcp_state {
 	S_BOUND = 5,
 	S_RENEWING = 6,
 	S_REBINDING = 7,
-	S_STOPPED = 8
+	S_DECLINING = 8,
+	S_STOPPED = 9
 };
 
 /* Possible pending client operations. */
@@ -1581,8 +1604,9 @@ typedef unsigned char option_mask [16];
 #define DHCPD_LOG_FACILITY	LOG_DAEMON
 #endif
 
-#define MAX_TIME 0x7fffffff
-#define MIN_TIME 0
+#define INFINITE_TIME	0xffffffff
+#define MAX_TIME	0x7fffffff
+#define MIN_TIME	0
 
 #ifdef USE_LOG_PID
 /* include the pid in the syslog messages */
@@ -1614,8 +1638,9 @@ struct iasubopt {
  */
 #define EXPIRED_IPV6_CLEANUP_TIME (60*60)
 
-	int heap_index;				/* index into heap, or -1
-						   (internal use only) */
+	/* index into heaps, or -1 (internal use only) */
+	int active_index;
+	int inactive_index;
 
 	/*
 	 * A pointer to the state of the ddns update for this lease.
@@ -1627,6 +1652,7 @@ struct iasubopt {
 
 	/* space for the on * executable statements */
 	struct on_star on_star;
+	int static_lease;
 };
 
 struct ia_xx {
@@ -1713,6 +1739,9 @@ struct ipv6_pond {
 	int logged;			/* already logged a message */
 	isc_uint64_t low_threshold;	/* low threshold to restart logging */
 	int jumbo_range;
+#ifdef EUI_64
+	int use_eui_64;		/* use EUI-64 address assignment when true */
+#endif
 };
 
 /*
@@ -1721,29 +1750,37 @@ struct ipv6_pond {
 */
 #define POND_TRACK_MAX ISC_UINT64_MAX
 
-/* Flags and state for dhcp_ddns_cb_t */
-#define DDNS_UPDATE_ADDR        0x01
-#define DDNS_UPDATE_PTR         0x02
-#define DDNS_INCLUDE_RRSET      0x04
-#define DDNS_CONFLICT_OVERRIDE  0x08
-#define DDNS_CLIENT_DID_UPDATE  0x10
-#define DDNS_EXECUTE_NEXT       0x20
-#define DDNS_ABORT              0x40
-#define DDNS_STATIC_LEASE       0x80
-#define DDNS_ACTIVE_LEASE	0x100
-/*
- * The following two groups are separate and we could reuse
- * values but not reusing them may be useful in the future.
- */
-#define DDNS_STATE_CLEANUP          0 // The previous step failed, cleanup
+/* Flags for dhcp_ddns_cb_t */
+#define DDNS_UPDATE_ADDR		0x0001
+#define DDNS_UPDATE_PTR			0x0002
+#define DDNS_INCLUDE_RRSET		0x0004
+#define DDNS_CONFLICT_DETECTION		0x0008
+#define DDNS_CLIENT_DID_UPDATE		0x0010
+#define DDNS_EXECUTE_NEXT		0x0020
+#define DDNS_ABORT			0x0040
+#define DDNS_STATIC_LEASE		0x0080
+#define DDNS_ACTIVE_LEASE		0x0100
+#define DDNS_DUAL_STACK_MIXED_MODE	0x0200
+#define DDNS_GUARD_ID_MUST_MATCH	0x0400
+#define DDNS_OTHER_GUARD_IS_DYNAMIC	0x0800
 
-#define DDNS_STATE_ADD_FW_NXDOMAIN  1
-#define DDNS_STATE_ADD_FW_YXDHCID   2
-#define DDNS_STATE_ADD_PTR          3
+#define CONFLICT_BITS (DDNS_CONFLICT_DETECTION|\
+                       DDNS_DUAL_STACK_MIXED_MODE|\
+                       DDNS_GUARD_ID_MUST_MATCH|\
+                       DDNS_OTHER_GUARD_IS_DYNAMIC)
 
-#define DDNS_STATE_REM_FW_YXDHCID  17
-#define DDNS_STATE_REM_FW_NXRR     18
-#define DDNS_STATE_REM_PTR         19
+/* States for dhcp_ddns_cb_t */
+#define DDNS_STATE_CLEANUP            0 /* startup or the previous step failed, cleanup */
+
+#define DDNS_STATE_ADD_FW_NXDOMAIN    1
+#define DDNS_STATE_ADD_FW_YXDHCID     2
+#define DDNS_STATE_ADD_PTR            3
+#define DDNS_STATE_DSMM_FW_ADD3       4
+
+#define DDNS_STATE_REM_FW_YXDHCID    17
+#define DDNS_STATE_REM_FW_NXRR       18
+#define DDNS_STATE_REM_PTR           19
+#define DDNS_STATE_REM_FW_DSMM_OTHER 20
 
 /*
  * Flags for the dns print function
@@ -1786,11 +1823,13 @@ typedef struct dhcp_ddns_cb {
 	void *dataspace;
 
 	dns_rdataclass_t dhcid_class;
+	dns_rdataclass_t other_dhcid_class;
 	char *lease_tag;
+	struct ia_xx *fixed6_ia;
 } dhcp_ddns_cb_t;
 
 extern struct ipv6_pool **pools;
-extern int num_pools;
+
 
 /* External definitions... */
 
@@ -2064,12 +2103,24 @@ extern struct timeval cur_tv;
 #define cur_time cur_tv.tv_sec
 
 extern int ddns_update_style;
+#if defined (NSUPDATE)
+extern u_int16_t ddns_conflict_mask;
+#endif
 extern int dont_use_fsync;
 extern int server_id_check;
 
+#ifdef EUI_64
+extern int persist_eui64;
+#endif
+
+#ifdef DHCPv6
 extern int prefix_length_mode;
+extern int do_release_on_roam;
+#endif
+
 extern int authoring_byte_order;
 extern int lease_id_format;
+extern u_int32_t abandon_lease_time;
 
 extern const char *path_dhcpd_conf;
 extern const char *path_dhcpd_db;
@@ -2175,6 +2226,7 @@ int ddns_updates(struct packet *, struct lease *, struct lease *,
 		 struct iasubopt *, struct iasubopt *, struct option_state *);
 isc_result_t ddns_removals(struct lease *, struct iasubopt *,
 			   struct dhcp_ddns_cb *, isc_boolean_t);
+u_int16_t get_conflict_mask(struct option_state *input_options);
 #if defined (TRACING)
 void trace_ddns_init(void);
 #endif
@@ -2392,6 +2444,8 @@ void eval_network_statements(struct option_state **options,
 			    struct packet *packet,
 			    struct group *network_group);
 
+u_int16_t dhcp_check_relayport(struct packet *packet);
+
 /* dhcpleasequery.c */
 void dhcpleasequery (struct packet *, int);
 void dhcpv6_leasequery (struct data_string *, struct packet *);
@@ -2582,6 +2636,7 @@ char *buf_to_hex (const unsigned char *s, unsigned len,
                    const char *file, int line);
 char *format_lease_id(const unsigned char *s, unsigned len, int format,
                       const char *file, int line);
+char *absolute_path(const char *orgpath);
 /* socket.c */
 #if defined (USE_SOCKET_SEND) || defined (USE_SOCKET_RECEIVE) \
 	|| defined (USE_SOCKET_FALLBACK)
@@ -2780,9 +2835,12 @@ void interface_trace_setup (void);
 extern struct in_addr limited_broadcast;
 extern int local_family;
 extern struct in_addr local_address;
+extern struct in6_addr local_address6;
+extern int bind_local_address6;
 
 extern u_int16_t local_port;
 extern u_int16_t remote_port;
+extern u_int16_t relay_port;
 extern int dhcpv4_over_dhcpv6;
 extern int (*dhcp_interface_setup_hook) (struct interface_info *,
 					 struct iaddr *);
@@ -2895,6 +2953,9 @@ char *piaddrmask(struct iaddr *, struct iaddr *);
 char *piaddrcidr(const struct iaddr *, unsigned int);
 u_int16_t validate_port(char *);
 u_int16_t validate_port_pair(char *);
+#if defined(DHCPv6)
+const char *pin6_addr (const struct in6_addr*);
+#endif
 
 /* dhclient.c */
 extern int nowait;
@@ -2970,7 +3031,8 @@ void client_envadd (struct client_state *,
 	__attribute__((__format__(__printf__,4,5)));
 
 struct client_lease *packet_to_lease (struct packet *, struct client_state *);
-void go_daemon (void);
+void finish (char);
+void detach (void);
 void write_client_pid_file (void);
 void client_location_changed (void);
 void do_release (struct client_state *);
@@ -3015,7 +3077,7 @@ void commit_leases_timeout (void *);
 int commit_leases (void);
 int commit_leases_timed (void);
 void db_startup (int);
-int new_lease_file (void);
+int new_lease_file (int test_mode);
 int group_writer (struct group_object *);
 int write_ia(const struct ia_xx *);
 
@@ -3123,8 +3185,6 @@ int dns_zone_dereference (struct dns_zone **, const char *, int);
 #if defined (NSUPDATE)
 #define FIND_FORWARD 0
 #define FIND_REVERSE 1
-isc_result_t find_tsig_key (ns_tsig_key **, const char *, struct dns_zone *);
-void tkey_free (ns_tsig_key **);
 isc_result_t find_cached_zone (dhcp_ddns_cb_t *, int);
 void forget_zone (struct dns_zone **);
 void repudiate_zone (struct dns_zone **);
@@ -3136,6 +3196,7 @@ isc_result_t ddns_update_fwd(struct data_string *, struct iaddr,
 			     unsigned);
 isc_result_t ddns_remove_fwd(struct data_string *,
 			     struct iaddr, struct data_string *);
+char *ddns_state_name(int state);
 #endif /* NSUPDATE */
 
 dhcp_ddns_cb_t *ddns_cb_alloc(const char *file, int line);
@@ -3163,10 +3224,10 @@ int inet_aton (const char *, struct in_addr *);
 
 /* class.c */
 extern int have_billing_classes;
-struct class unknown_class;
-struct class known_class;
-struct collection default_collection;
-struct collection *collections;
+extern struct class unknown_class;
+extern struct class known_class;
+extern struct collection default_collection;
+extern struct collection *collections;
 extern struct executable_statement *default_classification_rules;
 
 void classification_setup (void);
@@ -3524,6 +3585,7 @@ void free_everything (void);
 /* failover.c */
 #if defined (FAILOVER_PROTOCOL)
 extern dhcp_failover_state_t *failover_states;
+void dhcp_failover_sanity_check (void);
 void dhcp_failover_startup (void);
 int dhcp_failover_write_all_states (void);
 isc_result_t enter_failover_peer (dhcp_failover_state_t *);
@@ -3742,6 +3804,15 @@ isc_result_t create_lease6(struct ipv6_pool *pool,
 			   unsigned int *attempts,
 			   const struct data_string *uid,
 			   time_t soft_lifetime_end_time);
+#ifdef EUI_64
+int valid_eui_64_duid(const struct data_string* uid, int duid_beg);
+int valid_for_eui_64_pool(struct ipv6_pool*, struct data_string* uid,
+                          int duid_beg, struct in6_addr* ia_addr);
+isc_result_t create_lease6_eui_64(struct ipv6_pool *pool,
+				  struct iasubopt **addr,
+				  const struct data_string *iaid_uid,
+				  time_t soft_lifetime_end_time);
+#endif
 isc_result_t add_lease6(struct ipv6_pool *pool,
 			struct iasubopt *lease,
 			time_t valid_lifetime_end_time);

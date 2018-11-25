@@ -4,12 +4,12 @@
    way... */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -646,3 +646,19 @@ validate_port_pair(char *port) {
 
 	return htons((u_int16_t)local_port);
 }
+
+#ifdef DHCPv6
+/* Print a v6 address from an in6_addr struct */
+const char *
+pin6_addr(const struct in6_addr *src){
+
+	if (!src) {
+		return ("<null>");
+	}
+
+	struct iaddr addr;
+	addr.len = 16;
+	memcpy(addr.iabuf, src->s6_addr, 16);
+	return (piaddr(addr));
+}
+#endif

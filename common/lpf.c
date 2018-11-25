@@ -4,14 +4,12 @@
    Support Services in Vancouver, B.C. */
 
 /*
- * Copyright (c) 2014-2015 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2009,2012 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -179,6 +177,11 @@ void if_deregister_send (info)
 extern struct sock_filter dhcp_bpf_filter [];
 extern int dhcp_bpf_filter_len;
 
+#if defined(RELAY_PORT)
+extern struct sock_filter dhcp_bpf_relay_filter [];
+extern int dhcp_bpf_relay_filter_len;
+#endif
+
 #if defined (HAVE_TR_SUPPORT)
 extern struct sock_filter dhcp_bpf_tr_filter [];
 extern int dhcp_bpf_tr_filter_len;
@@ -258,7 +261,19 @@ static void lpf_gen_filter_setup (info)
         /* Patch the server port into the LPF  program...
 	   XXX changes to filter program may require changes
 	   to the insn number(s) used below! XXX */
-	dhcp_bpf_filter [8].k = ntohs ((short)local_port);
+#if defined(RELAY_PORT)
+	if (relay_port) {
+		/*
+		 * If user defined relay UDP port, we need to filter
+		 * also on the user UDP port.
+		 */
+		p.len = dhcp_bpf_relay_filter_len;
+		p.filter = dhcp_bpf_relay_filter;
+
+		dhcp_bpf_relay_filter [10].k = ntohs (relay_port);
+	}
+#endif
+	dhcp_bpf_filter [8].k = ntohs (local_port);
 
 	if (setsockopt (info -> rfdesc, SOL_SOCKET, SO_ATTACH_FILTER, &p,
 			sizeof p) < 0) {
