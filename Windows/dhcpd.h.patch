@@ -1,0 +1,10 @@
+//linux patch compatible file created by DarkDiff
+--- "a/includes/dhcpd.h"
++++ "b/includes/dhcpd.h"
+@@ -31,6 +31,7 @@
+ #include "config.h"
++#include "../Windows/WindowsDefines.h"
+
+ #ifndef __CYGWIN32__
+ #include <sys/types.h>
+

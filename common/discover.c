@@ -453,7 +453,7 @@ next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 		else if (ifaces->next->ifa_addr->sa_family == AF_INET6)
 			sa_len = sizeof(struct sockaddr_in6);
 #else
-		sa_len = ifaces->next->ifa_addr->sa_len;
+		sa_len = sizeof(struct sockaddr_in6); //ifaces->next->ifa_addr->sa_len;
 #endif
 		memcpy(&info->addr, ifaces->next->ifa_addr, sa_len);
 	}

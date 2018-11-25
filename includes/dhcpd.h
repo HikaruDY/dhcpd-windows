@@ -27,6 +27,7 @@
  */
 
 #include "config.h"
+#include "../Windows/WindowsDefines.h"
 
 #ifndef __CYGWIN32__
 #include <sys/types.h>

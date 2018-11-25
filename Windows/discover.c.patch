@@ -1,0 +1,11 @@
+//linux patch compatible file created by DarkDiff
+--- "a/common/discover.c"
++++ "b/common/discover.c"
+@@ -819,6 +819,7 @@
+ 	memcpy(&info->addr, ifaces->next->ifa_addr, 
+-	       ifaces->next->ifa_addr->sa_len);
++		sizeof(struct sockaddr_in6) );
++//	       ifaces->next->ifa_addr->sa_len);
+ 	info->flags = ifaces->next->ifa_flags;
+ 	ifaces->next = ifaces->next->ifa_next;
+

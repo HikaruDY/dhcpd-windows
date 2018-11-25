@@ -1,0 +1,10 @@
+//linux patch compatible file created by DarkDiff
+--- "a/common/socket.c"
++++ "b/common/socket.c"
+@@ -181,6 +181,7 @@
+ 		memcpy(&addr->sin_addr,
+-		       &local_address,
++//		       &local_address,
++ 			&info->addresses[0], 
+		       sizeof(addr->sin_addr));
+ #ifdef HAVE_SA_LEN
