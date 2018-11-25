@@ -1,4 +1,4 @@
-/* $Id: dhcpctl.h,v 1.16.786.2 2009/07/24 22:04:52 sar Exp $
+/* $Id: dhcpctl.h,v 1.18 2009/11/24 02:06:56 sar Exp $
 
    Subroutines providing general support for objects. */
 

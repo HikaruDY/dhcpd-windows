@@ -1,7 +1,6 @@
 .\"	dhcrelay.8
 .\"
-.\" Copyright (c) 2009-2016 by Internet Systems Consortium, Inc. ("ISC")
-.\" Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 1997-2003 by Internet Software Consortium
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
@@ -28,7 +27,7 @@
 .\" Support and other services are available for ISC products - see
 .\" https://www.isc.org for more information or to learn more about ISC.
 .\"
-.\" $Id: dhcrelay.8,v 1.15.38.3.6.2 2012/05/14 23:20:34 sar Exp $
+.\" $Id: dhcrelay.8,v 1.20 2012/05/14 23:17:43 sar Exp $
 .\"
 .TH dhcrelay 8
 .SH NAME
@@ -76,26 +75,13 @@ dhcrelay - Dynamic Host Configuration Protocol Relay Agent
 [
 .B ...
 .B -i
-.I interfaceN
-]
-]
-[
-.B -iu
-.I interface0
-[
-.B ...
-.B -iu
 .I interfaceN 
 ]
+.B -l
+.I interface
 ]
-[
-.B -id
-.I interface0
-[
-.B ...
-.B -id
-.I interfaceN
-]
+.B -U
+.I interface
 ]
 .I server0
 [
@@ -120,6 +106,10 @@ dhcrelay - Dynamic Host Configuration Protocol Relay Agent
 ]
 [
 .B --no-pid
+]
+[
+.B -s
+.I subscriber-id
 ]
 .B -l
 .I lower0
@@ -214,23 +204,11 @@ a query that came via a different relay agent.  If this option is not
 specified, such packets will be relayed anyway.
 .TP
 -i \fIifname\fR
-Listen for DHCPv4/BOOTP traffic on interface \fIifname\fR.  Multiple
+Listen for DHCPv4/BOOTP queries on interface \fIifname\fR.  Multiple
 interfaces may be specified by using more than one \fB-i\fR option.  If
 no interfaces are specified on the command line, dhcrelay will identify
 all network interfaces, eliminating non-broadcast interfaces if possible,
 and attempt to listen on all of them.
-.TP
--iu \fIifname\fR
-Specifies an upstream network interface: an interface from which replies
-from servers and other relay agents will be accepted.  Multiple interfaces
-may be specified by using more than one \fB-iu\fR option.  This argument is
-intended to be used in conjunction with one or more -i or -id arguments.
-.TP
--id \fIifname\fR
-Specifies a downstream network interface: an interface from which requests
-from clients and other relay agents will be accepted.  Multiple interfaces
-may be specified by using more than one \fB-id\fR option.  This argument is
-intended to be used in conjunction with one or more -i or -iu arguments.
 .TP
 -m \fIappend\fR|\fIreplace\fR|\fIforward\fR|\fIdiscard\fR
 Control the handling of incoming DHCPv4 packets which already contain
@@ -241,8 +219,37 @@ in four ways:  It may \fIappend\fR its own set of relay options to the
 packet, leaving the supplied option field intact; it may \fIreplace\fR the
 existing agent option field; it may \fIforward\fR the packet unchanged; or,
 it may \fIdiscard\fR it.
+.TP
+-U \fIifname\fR
+Enables the addition of a RFC 3527 compliant link selection suboption for
+clients directly connected to the relay.  This RFC allows a relay to
+specify two different IP addresses: one for the server to use when
+communicating with the relay (giaddr) the other for choosing the subnet
+for the client (the suboption).  This can be useful if the server is
+unable to send packets to the relay via the address used for the subnet.
 
-To use this option you must also enable the \fB-a\fR option.
+When enabled, dhcrelay will add an agent option (as per \fB-a\fR above) that
+includes the link selection suboption to the forwarded packet.  This will only
+be done to packets received from clients that are directly connected to the
+relay (i.e. giaddr is zero).  The address used in the suboption will be that
+of the link upon which the inbound packet was received (which would otherwise
+be used for giaddr). The value of giaddr will be set to that of interface
+\fIifname\fR.
+
+Only one interface should be marked in this fashion.  Currently enabling
+this option on an interface causes the relay to process all DHCP traffic
+similar to the \fI-i\fR option, in the future we may split the two more
+completely.
+
+This option is off by default.  Note that enabling this option automatically
+enables the \fB-a\fR option.
+
+Keep in mind that using options such as \fB-m replace\fR or \fB-m discard\fR
+on relays upstream from one using \fB-U\fR can pose problems.  The upstream
+relay will wipe out the initial agent option containing the link selection
+while leaving the re-purposed giaddr value in place, causing packets to go
+astray.
+
 .PP
 \fIOptions available in DHCPv6 mode only:\fR
 .TP
@@ -252,6 +259,11 @@ automatically sent when there are two or more downstream interfaces
 in use, to disambiguate between them.  The \fB-I\fR option causes
 dhcrelay to send the option even if there is only one downstream
 interface.
+.TP
+-s subscriber-id
+Add an option with the specified subscriber-id into the packet.  This
+feature is for testing rather than production as it will put the same
+subscriber-id into the packet for all clients.
 .TP
 -l [\fIaddress%\fR]\fIifname\fR[\fI#index\fR]
 Specifies the ``lower'' network interface for DHCPv6 relay mode: the

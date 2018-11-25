@@ -50,15 +50,15 @@ write_binding_scope(FILE *db_file, struct binding *bnd, char *prepend) {
 	char *s;
 
 	if ((db_file == NULL) || (bnd == NULL) || (prepend == NULL))
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	if (bnd->value->type == binding_data) {
 		if (bnd->value->value.data.data != NULL) {
 			s = quotify_buf(bnd->value->value.data.data,
-					bnd->value->value.data.len, MDL);
+					bnd->value->value.data.len, '"', MDL);
 			if (s != NULL) {
 				errno = 0;
-				fprintf(db_file, "%sset %s = \"%s\";",
+				fprintf(db_file, "%sset %s = %s;",
 					prepend, bnd->name, s);
 				dfree(s, MDL);
 				if (errno)
@@ -163,6 +163,20 @@ int write_lease (lease)
 			  : "abandoned")) < 0)
                         ++errors;
 
+	/*
+	 * In this case, if the rewind state is not present in the lease file,
+	 * the reader will use the current binding state as the most
+	 * conservative (safest) state.  So if the in-memory rewind state is
+	 * for some reason invalid, the best thing to do is not to write a
+	 * state and let the reader take on a safe state.
+	 */
+	if ((lease->binding_state != lease->rewind_binding_state) &&
+	    (lease->rewind_binding_state > 0) &&
+	    (lease->rewind_binding_state <= FTS_LAST) &&
+	    (fprintf(db_file, "\n  rewind binding state %s;",
+		     binding_state_names[lease->rewind_binding_state-1])) < 0)
+			++errors;
+
 	if (lease->flags & RESERVED_LEASE)
 		if (fprintf(db_file, "\n  reserved;") < 0)
                         ++errors;
@@ -192,10 +206,11 @@ int write_lease (lease)
 			++errors;
 	}
 	if (lease -> uid_len) {
-		s = quotify_buf (lease -> uid, lease -> uid_len, MDL);
+		s = format_lease_id(lease->uid, lease->uid_len, lease_id_format,
+				    MDL);
 		if (s) {
 			errno = 0;
-			fprintf (db_file, "\n  uid \"%s\";", s);
+			fprintf (db_file, "\n  uid %s;", s);
 			if (errno)
 				++errors;
 			dfree (s, MDL);
@@ -244,21 +259,22 @@ int write_lease (lease)
 		} else
 			++errors;
 	}
-	if (lease -> on_expiry) {
+	if (lease->on_star.on_expiry) {
 		errno = 0;
 		fprintf (db_file, "\n  on expiry%s {",
-			 lease -> on_expiry == lease -> on_release
+			 lease->on_star.on_expiry == lease->on_star.on_release
 			 ? " or release" : "");
-		write_statements (db_file, lease -> on_expiry, 4);
+		write_statements (db_file, lease->on_star.on_expiry, 4);
 		/* XXX */
 		fprintf (db_file, "\n  }");
 		if (errno)
 			++errors;
 	}
-	if (lease -> on_release && lease -> on_release != lease -> on_expiry) {
+	if (lease->on_star.on_release &&
+	    lease->on_star.on_release != lease->on_star.on_expiry) {
 		errno = 0;
 		fprintf (db_file, "\n  on release {");
-		write_statements (db_file, lease -> on_release, 4);
+		write_statements (db_file, lease->on_star.on_release, 4);
 		/* XXX */
 		fprintf (db_file, "\n  }");
 		if (errno)
@@ -523,23 +539,23 @@ write_ia(const struct ia_xx *ia) {
 		++count;
 	}
 
-	
-	s = quotify_buf(ia->iaid_duid.data, ia->iaid_duid.len, MDL);
+	s = format_lease_id(ia->iaid_duid.data, ia->iaid_duid.len,
+			    lease_id_format, MDL);
 	if (s == NULL) {
 		goto error_exit;
 	}
 	switch (ia->ia_type) {
 	case D6O_IA_NA:
-		fprintf_ret = fprintf(db_file, "ia-na \"%s\" {\n", s);
+		fprintf_ret = fprintf(db_file, "ia-na %s {\n", s);
 		break;
 	case D6O_IA_TA:
-		fprintf_ret = fprintf(db_file, "ia-ta \"%s\" {\n", s);
+		fprintf_ret = fprintf(db_file, "ia-ta %s {\n", s);
 		break;
 	case D6O_IA_PD:
-		fprintf_ret = fprintf(db_file, "ia-pd \"%s\" {\n", s);
+		fprintf_ret = fprintf(db_file, "ia-pd %s {\n", s);
 		break;
 	default:
-		log_error("Unknown ia type %u for \"%s\" at %s:%d",
+		log_error("Unknown ia type %u for %s at %s:%d",
 			  (unsigned)ia->ia_type, s, MDL);
 		fprintf_ret = -1;
 	}
@@ -626,6 +642,29 @@ write_ia(const struct ia_xx *ia) {
 				
 		}
 
+		if (iasubopt->on_star.on_expiry) {
+			if (fprintf(db_file, "\n    on expiry%s {",
+				    iasubopt->on_star.on_expiry ==
+				    iasubopt->on_star.on_release
+				    ? " or release" : "") < 0)
+				goto error_exit;
+			write_statements(db_file,
+					 iasubopt->on_star.on_expiry, 6);
+			if (fprintf(db_file, "\n    }") < 0) 
+				goto error_exit;
+		}
+
+		if (iasubopt->on_star.on_release &&
+		    iasubopt->on_star.on_release !=
+		    iasubopt->on_star.on_expiry) {
+			if (fprintf(db_file, "\n    on release {") < 0)
+				goto error_exit;
+			write_statements(db_file,
+					 iasubopt->on_star.on_release, 6);
+			if (fprintf(db_file, "\n    }") < 0)
+				goto error_exit;
+		}
+
 		if (fprintf(db_file, "\n  }\n") < 0)
                         goto error_exit;
 	}
@@ -673,7 +712,8 @@ write_server_duid(void) {
 	 */
 	memset(&server_duid, 0, sizeof(server_duid));
 	copy_server_duid(&server_duid, MDL);
-	s = quotify_buf(server_duid.data, server_duid.len, MDL);
+	s = format_lease_id(server_duid.data, server_duid.len, lease_id_format,
+			    MDL);
 	data_string_forget(&server_duid, MDL);
 	if (s == NULL) {
 		goto error_exit;
@@ -682,7 +722,7 @@ write_server_duid(void) {
 	/*
 	 * Write to the leases file.
 	 */
-	fprintf_ret = fprintf(db_file, "server-duid \"%s\";\n\n", s);
+	fprintf_ret = fprintf(db_file, "server-duid %s;\n\n", s);
 	dfree(s, MDL);
 	if (fprintf_ret < 0) {
 		goto error_exit;
@@ -973,12 +1013,13 @@ int commit_leases ()
 	   We need to do this even if we're rewriting the file below,
 	   just in case the rewrite fails. */
 	if (fflush (db_file) == EOF) {
-		log_info ("commit_leases: unable to commit: %m");
-		return 0;
+		log_info("commit_leases: unable to commit, fflush(): %m");
+		return (0);
 	}
-	if (fsync (fileno (db_file)) < 0) {
-		log_info ("commit_leases: unable to commit: %m");
-		return 0;
+	if ((dont_use_fsync == 0) &&
+	    (fsync(fileno (db_file)) < 0)) {
+		log_info ("commit_leases: unable to commit, fsync(): %m");
+		return (0);
 	}
 
 	/* If we haven't rewritten the lease database in over an
@@ -987,9 +1028,9 @@ int commit_leases ()
 	if (count && cur_time - write_time > LEASE_REWRITE_PERIOD) {
 		count = 0;
 		write_time = cur_time;
-		new_lease_file ();
+		new_lease_file();
 	}
-	return 1;
+	return (1);
 }
 
 /*
@@ -1142,7 +1183,6 @@ int new_lease_file ()
 		  "little-endian" : "big-endian"));
 	if (errno)
 		goto fail;
-
 
 	/* At this point we have a new lease file that, so far, could not
 	 * be described as either corrupt nor valid.

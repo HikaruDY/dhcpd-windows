@@ -3,7 +3,7 @@
    BSD socket interface code... */
 
 /*
- * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2015 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -39,7 +39,6 @@
 #include <sys/ioctl.h>
 #include <sys/uio.h>
 #include <sys/uio.h>
-#include <signal.h>
 
 #if defined(sun) && defined(USE_V4_PKTINFO)
 #include <sys/sysmacros.h>
@@ -130,6 +129,10 @@ if_register_socket(struct interface_info *info, int family,
 	int sock;
 	int flag;
 	int domain;
+#ifdef DHCPv6
+	struct sockaddr_in6 *addr6;
+#endif
+	struct sockaddr_in *addr;
 
 	/* INSIST((family == AF_INET) || (family == AF_INET6)); */
 
@@ -147,30 +150,32 @@ if_register_socket(struct interface_info *info, int family,
 	 * address family. 
 	 */ 
 	memset(&name, 0, sizeof(name));
+	switch (family) {
 #ifdef DHCPv6
-	if (family == AF_INET6) {
-		struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&name; 
-		addr->sin6_family = AF_INET6;
-		addr->sin6_port = local_port;
+	case AF_INET6:
+		addr6 = (struct sockaddr_in6 *)&name; 
+		addr6->sin6_family = AF_INET6;
+		addr6->sin6_port = local_port;
 		if (linklocal6) {
-			memcpy(&addr->sin6_addr,
+			memcpy(&addr6->sin6_addr,
 			       linklocal6,
-			       sizeof(addr->sin6_addr));
-			addr->sin6_scope_id =  if_nametoindex(info->name);
+			       sizeof(addr6->sin6_addr));
+			addr6->sin6_scope_id = if_nametoindex(info->name);
 		}
 #ifdef HAVE_SA_LEN
-		addr->sin6_len = sizeof(*addr);
+		addr6->sin6_len = sizeof(*addr6);
 #endif
-		name_len = sizeof(*addr);
+		name_len = sizeof(*addr6);
 		domain = PF_INET6;
 		if ((info->flags & INTERFACE_STREAMS) == INTERFACE_UPSTREAM) {
 			*do_multicast = 0;
 		}
-	} else { 
-#else 
-	{
+		break;
 #endif /* DHCPv6 */
-		struct sockaddr_in *addr = (struct sockaddr_in *)&name; 
+
+	case AF_INET:
+	default:
+		addr = (struct sockaddr_in *)&name; 
 		addr->sin_family = AF_INET;
 		addr->sin_port = local_port;
 		memcpy(&addr->sin_addr,
@@ -181,6 +186,7 @@ if_register_socket(struct interface_info *info, int family,
 #endif
 		name_len = sizeof(*addr);
 		domain = PF_INET;
+		break;
 	}
 
 	/* Make a socket... */
@@ -213,14 +219,11 @@ if_register_socket(struct interface_info *info, int family,
 	 * respective interfaces.  This does not (and should not) affect
 	 * DHCPv4 sockets; we can't yet support BSD sockets well, much
 	 * less multiple sockets. Make sense only with multicast.
-	 * RedHat defines SO_REUSEPORT with a kernel which does not support
-	 * it and returns ENOPROTOOPT so in this case ignore the error.
 	 */
-	if (local_family == AF_INET6) {
+	if ((local_family == AF_INET6) && *do_multicast) {
 		flag = 1;
-		if ((setsockopt(sock, SOL_SOCKET, SO_REUSEPORT,
-			        (char *)&flag, sizeof(flag)) < 0) &&
-		    (errno != ENOPROTOOPT)) {
+		if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT,
+			       (char *)&flag, sizeof(flag)) < 0) {
 			log_fatal("Can't set SO_REUSEPORT option on dhcp "
 				  "socket: %m");
 		}
@@ -1062,7 +1065,7 @@ isc_result_t fallback_discard (object)
 	struct interface_info *interface;
 
 	if (object -> type != dhcp_type_interface)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	interface = (struct interface_info *)object;
 
 	status = recvfrom (interface -> wfdesc, buf, sizeof buf, 0,
@@ -1220,26 +1223,3 @@ get_hw_addr(const char *name, struct hardware *hw) {
 #endif /* defined(sun) */
 
 #endif /* USE_SOCKET_SEND */
-
-/*
- * Code to set a handler for signals.  This
- * exists to allow us to ignore SIGPIPE signals
- * but could be used for other purposes in the
- * future.
- */
-
-isc_result_t
-dhcp_handle_signal(int sig, void (*handler)(int)) {
-	struct sigaction sa;
-
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = handler;
-
-	if (sigfillset(&sa.sa_mask) != 0 ||
-	    sigaction(sig, &sa, NULL) < 0) {
-		log_error("Unable to set up signal handler for %d, %m", sig);
-		return (ISC_R_UNEXPECTED);
-	}
-
-	return (ISC_R_SUCCESS);
-}

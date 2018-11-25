@@ -103,12 +103,16 @@
 
 /* #define DEBUG_DUMP_ALL_LEASES */
 
-/* Define this if you want to debug checksum calculations */
-/* #define DEBUG_CHECKSUM */
+/* Define this if you want to see the requests and replies between the
+   DHCP code and the DNS library code. */
 
-/* Define this if you want to verbosely debug checksum calculations */
-/* #define DEBUG_CHECKSUM_VERBOSE */
+/* #define DEBUG_DNS_UPDATES */
 
+/* Define this if you want to debug the host part of the inform processing */
+/* #define DEBUG_INFORM_HOST */
+
+/* Define this if you want to debug the binary leases (lease_chain) code */
+/* #define DEBUG_BINARY_LEASES */
 
 /* Define this if you want DHCP failover protocol support in the DHCP
    server. */
@@ -118,6 +122,10 @@
 /* Define this if you want DNS update functionality to be available. */
 
 #define NSUPDATE
+
+/* Define this if you want to enable the DHCP server attempting to
+   find a nameserver to use for DDNS updates. */
+#define DNS_ZONE_LOOKUP
 
 /* Define this if you want the dhcpd.pid file to go somewhere other than
    the default (which varies from system to system, but is usually either
@@ -209,10 +217,25 @@
 
 /* #define TRACING */
 
+/* Define this if you want the server to use the previous behavior
+   when determining the DDNS TTL.  If the user has specified a ddns-ttl
+   option that is used to detemine the ttl.  (If the user specifies
+   an option that references the lease structure it is only usable
+   for v4.  In that case v6 will use the default.) Otherwise when
+   defined the defaults are: v4 - 1/2 the lease time,
+   v6 - DEFAULT_DDNS_TTL.  When undefined the defaults are 1/2 the
+   (preferred) lease time for both but with a cap on the maximum. */
+
+/* #define USE_OLD_DDNS_TTL */
+
 /* Define this if you want a DHCPv6 server to send replies to the
    source port of the message it received.  This is useful for testing
    but is only included for backwards compatibility. */
 /* #define REPLY_TO_SOURCE_PORT */
+
+/* Define this if you want to enable strict checks in DNS Updates mechanism.
+   Do not enable this unless are DHCP developer. */
+/* #define DNS_UPDATES_MEMORY_CHECKS */
 
 /* Define this if you want to allow domain list in domain-name option.
    RFC2132 does not allow that behavior, but it is somewhat used due
@@ -220,16 +243,6 @@
    future. */
 
 #define ACCEPT_LIST_IN_DOMAIN_NAME
-
-/* In RFC3315 section 17.2.2 stated that if the server was not going
-   to be able to assign any addresses to any IAs in a subsequent Request
-   from a client that the server should not include any IAs.  This
-   requirement was removed in an errata from August 2010.  Define the
-   following if you want the pre-errata version.  
-   You should only enable this option if you have clients that
-   require the original functionality. */
-
-/* #define RFC3315_PRE_ERRATA_2010_08 */
 
 /* In previous versions of the code when the server generates a NAK
    it doesn't attempt to determine if the configuration included a
@@ -240,41 +253,23 @@
    host declarations.  With some configurations the server id
    computed for a NAK may not match that computed for an ACK. */
 
-/* #define SERVER_ID_FOR_NAK */
+#define SERVER_ID_FOR_NAK
 
-/* When processing a request do a simple check to compare the
-   server id the client sent with the one the server would send.
-   In order to minimize the complexity of the code the server
-   only checks for a server id option in the global and subnet
-   scopes.  Complicated configurations may result in differnet
-   server ids for this check and when the server id for a reply
-   packet is determined, which would prohibit the server from
-   responding.
+/* NOTE:  SERVER_ID_CHECK switch has been removed. Enabling server id
+ * checking is now done via the server-id-check statement. Please refer
+ * to the dhcpd manpage (server/dhcpd.conf.5) */
 
-   The primary use for this option is when a client broadcasts
-   a request but requires the response to come from one of the
-   failover peers.  An example of this would be when a client
-   reboots while its lease is still active - in this case both
-   servers will normally respond.  Most of the time the client
-   won't check the server id and can use either of the responses.
-   However if the client does check the server id it may reject
-   the response if it came from the wrong peer.  If the timing
-   is such that the "wrong" peer responds first most of the time
-   the client may not get an address for some time.
-
-   Currently this option is only available when failover is in
-   use.
-
-   Care should be taken before enabling this option. */
-
-/* #define SERVER_ID_CHECK */
-
-/* In the v6 server code log the addresses as they are assigned
-   to make it easier for an admin to see what has beend done.
-   This default to off to avoid changes to what is currently
-   logged. */
-
-/* #define LOG_V6_ADDRESSES */
+/* Include code to do a slow transition of DDNS records
+   from the interim to the standard version, or backwards.
+   The normal code will handle removing an old style record
+   when the name on a lease is being changed.  This adds code
+   to handle the case where the name isn't being changed but
+   the old record should be removed to allow a new record to
+   be added.  This is the slow transition as leases are only
+   updated as a client touches them.  A fast transition would
+   entail updating all the records at once, probably at start
+   up. */
+#define DDNS_UPDATE_SLOW_TRANSITION
 
 /* Define the default prefix length passed from the client to
    the script when modifying an IPv6 IA_NA or IA_TA address.
@@ -286,13 +281,22 @@
    prefix. */
 #define DHCLIENT_DEFAULT_PREFIX_LEN 64
 
-/* Enable conversion at startup of leases from FTS_BACKUP to FTS_FREE
-   when either their pool has no configured failover peer or 
-   FAILOVER_PROTOCOL is not enabled.  This allows the leases to be
-   reclaimed by the server after a pool's configuration has changed
-   from failover to standalone. Prior to this such leases would remain
-   stuck in the backup state. */
-/* #define CONVERT_BACKUP_TO_FREE */
+/* Enable the gentle shutdown signal handling.  Currently this
+   means that on SIGINT or SIGTERM a client will release its
+   address and a server in a failover pair will go through
+   partner down.  Both of which can be undesireable in some
+   situations.  We plan to revisit this feature and may
+   make non-backwards compatible changes including the
+   removal of this define.  Use at your own risk.  */
+/* #define ENABLE_GENTLE_SHUTDOWN */
+
+/* Include old error codes.  This is provided in case you
+   are building an external program similar to omshell for
+   which you need the ISC_R_* error codes.  You should switch
+   to DHCP_R_* error codes for those that have been defined
+   (see includes/omapip/result.h).  The extra defines and
+   this option will be removed at some time. */
+/* #define INCLUDE_OLD_DHCP_ISC_ERROR_CODES */
 
 /* Use the older factors for scoring a lease in the v6 client code.
    The new factors cause the client to choose more bindings (IAs)
@@ -314,14 +318,31 @@
    allow at one time.  A value of 0 means there is no limit.*/
 #define MAX_FD_VALUE 200
 
-/* Enable enforcement of the require option statement as documented
- * in man page.  Instructs the dhclient, when in -6 mode, to discard
- * offered leases that do not contain all options specified as required
- * in the client's configuration file. The client already enforces this
- * in -4 mode. */
-/* #define ENFORCE_DHCPV6_CLIENT_REQUIRE */
-
-/* Enable the invocation of the client script with a FAIL state code
- * by dhclient when running in one-try mode (-T) and the attempt to
- * obtain the desired lease(s) fails. Applies to IPv4 mode only. */
-/* #define CALL_SCRIPT_ON_ONETRY_FAIL */
+/* Include definitions for various options.  In general these
+   should be left as is, but if you have already defined one
+   of these and prefer your definition you can comment the 
+   RFC define out to avoid conflicts */
+#define RFC2563_OPTIONS
+#define RFC2937_OPTIONS
+#define RFC4776_OPTIONS
+#define RFC4833_OPTIONS
+#define RFC4994_OPTIONS
+#define RFC5192_OPTIONS
+#define RFC5223_OPTIONS
+#define RFC5417_OPTIONS
+#define RFC5460_OPTIONS
+#define RFC5969_OPTIONS
+#define RFC5970_OPTIONS
+#define RFC5986_OPTIONS
+#define RFC6011_OPTIONS
+#define RFC6011_OPTIONS
+#define RFC6153_OPTIONS
+#define RFC6334_OPTIONS
+#define RFC6440_OPTIONS
+#define RFC6731_OPTIONS
+#define RFC6939_OPTIONS
+#define RFC6977_OPTIONS
+#define RFC7083_OPTIONS
+#define RFC7341_OPTIONS
+#define RFC7618_OPTIONS
+#define RFC7710_OPTIONS

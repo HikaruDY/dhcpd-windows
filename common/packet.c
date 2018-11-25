@@ -3,7 +3,8 @@
    Packet assembly code, originally contributed by Archie Cobbs. */
 
 /*
- * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2009,2012,2014 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2005,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -49,7 +50,7 @@ u_int32_t checksum (buf, nbytes, sum)
 	unsigned i;
 
 #ifdef DEBUG_CHECKSUM
-	log_debug ("checksum (%x %d %x)", (unsigned)buf, nbytes, sum);
+	log_debug ("checksum (%x %d %x)", buf, nbytes, sum);
 #endif
 
 	/* Checksum all the pairs of bytes first... */
@@ -320,6 +321,12 @@ decode_udp_ip_header(struct interface_info *interface,
 	return -1;
   }
 
+  /* If at least 5 with less than 50% bad, start over */
+  if (udp_packets_length_checked > 4) {
+	udp_packets_length_overflow = 0;
+	udp_packets_length_checked = 0;
+  }
+
   /* Check the IP header checksum - it should be zero. */
   ip_packets_seen++;
   if (wrapsum (checksum (buf + bufix, ip_len, 0))) {
@@ -331,6 +338,12 @@ decode_udp_ip_header(struct interface_info *interface,
 		  ip_packets_seen = ip_packets_bad_checksum = 0;
 	  }
 	  return -1;
+  }
+
+  /* If at least 5 with less than 50% bad, start over */
+  if (ip_packets_seen > 4) {
+	ip_packets_bad_checksum = 0;
+	ip_packets_seen = 0;
   }
 
   /* Copy out the IP source address... */
@@ -353,8 +366,8 @@ decode_udp_ip_header(struct interface_info *interface,
 		udp_packets_bad_checksum++;
 		if (((udp_packets_seen > 4) && (udp_packets_bad_checksum != 0))
 		    && ((udp_packets_seen / udp_packets_bad_checksum) < 2)) {
-			log_debug ("%u bad udp checksums in %u packets",
-			           udp_packets_bad_checksum, udp_packets_seen);
+			log_info ("%u bad udp checksums in %u packets",
+			          udp_packets_bad_checksum, udp_packets_seen);
 			udp_packets_seen = udp_packets_bad_checksum = 0;
 		}
 

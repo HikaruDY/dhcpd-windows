@@ -134,7 +134,7 @@ isc_result_t dhcp_group_set_value  (omapi_object_t *h,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_group)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	group = (struct group_object *)h;
 
 	/* XXX For now, we can only set these values on new group objects. 
@@ -153,7 +153,7 @@ isc_result_t dhcp_group_set_value  (omapi_object_t *h,
 				value -> u.buffer.len);
 			group -> name [value -> u.buffer.len] = 0;
 		} else
-			return ISC_R_INVALIDARG;
+			return DHCP_R_INVALIDARG;
 		return ISC_R_SUCCESS;
 	}
 
@@ -179,19 +179,19 @@ isc_result_t dhcp_group_set_value  (omapi_object_t *h,
 			      (&group -> group -> statements, parse, &lose,
 			       context_any))) {
 				end_parse (&parse);
-				return ISC_R_BADPARSE;
+				return DHCP_R_BADPARSE;
 			}
 			end_parse (&parse);
 			return ISC_R_SUCCESS;
 		} else
-			return ISC_R_INVALIDARG;
+			return DHCP_R_INVALIDARG;
 	}
 
 	/* Try to find some inner object that can take the value. */
 	if (h -> inner && h -> inner -> type -> set_value) {
 		status = ((*(h -> inner -> type -> set_value))
 			  (h -> inner, id, name, value));
-		if (status == ISC_R_SUCCESS || status == ISC_R_UNCHANGED)
+		if (status == ISC_R_SUCCESS || status == DHCP_R_UNCHANGED)
 			return status;
 	}
 			  
@@ -207,7 +207,7 @@ isc_result_t dhcp_group_get_value (omapi_object_t *h, omapi_object_t *id,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_group)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	group = (struct group_object *)h;
 
 	if (!omapi_ds_strcmp (name, "name"))
@@ -229,7 +229,7 @@ isc_result_t dhcp_group_destroy (omapi_object_t *h, const char *file, int line)
 	struct group_object *group, *t;
 
 	if (h -> type != dhcp_type_group)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	group = (struct group_object *)h;
 
 	if (group -> name) {
@@ -262,14 +262,14 @@ isc_result_t dhcp_group_signal_handler (omapi_object_t *h,
 	int updatep = 0;
 
 	if (h -> type != dhcp_type_group)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	group = (struct group_object *)h;
 
 	if (!strcmp (name, "updated")) {
 		/* A group object isn't valid if a subgroup hasn't yet been
 		   associated with it. */
 		if (!group -> group)
-			return ISC_R_INVALIDARG;
+			return DHCP_R_INVALIDARG;
 
 		/* Group objects always have to have names. */
 		if (!group -> name) {
@@ -307,7 +307,7 @@ isc_result_t dhcp_group_stuff_values (omapi_object_t *c,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_group)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	group = (struct group_object *)h;
 
 	/* Write out all the values. */
@@ -339,7 +339,7 @@ isc_result_t dhcp_group_lookup (omapi_object_t **lp,
 	struct group_object *group;
 
 	if (!ref)
-		return ISC_R_NOKEYS;
+		return DHCP_R_NOKEYS;
 
 	/* First see if we were sent a handle. */
 	status = omapi_get_value_str (ref, id, "handle", &tv);
@@ -353,7 +353,7 @@ isc_result_t dhcp_group_lookup (omapi_object_t **lp,
 		/* Don't return the object if the type is wrong. */
 		if ((*lp) -> type != dhcp_type_group) {
 			omapi_object_dereference (lp, MDL);
-			return ISC_R_INVALIDARG;
+			return DHCP_R_INVALIDARG;
 		}
 	}
 
@@ -371,7 +371,7 @@ isc_result_t dhcp_group_lookup (omapi_object_t **lp,
 			if (*lp && *lp != (omapi_object_t *)group) {
 			    group_object_dereference (&group, MDL);
 			    omapi_object_dereference (lp, MDL);
-			    return ISC_R_KEYCONFLICT;
+			    return DHCP_R_KEYCONFLICT;
 			} else if (!*lp) {
 			    /* XXX fix so that hash lookup itself creates
 			       XXX the reference. */
@@ -387,7 +387,7 @@ isc_result_t dhcp_group_lookup (omapi_object_t **lp,
 	/* If we get to here without finding a group, no valid key was
 	   specified. */
 	if (!*lp)
-		return ISC_R_NOKEYS;
+		return DHCP_R_NOKEYS;
 
 	if (((struct group_object *)(*lp)) -> flags & GROUP_OBJECT_DELETED) {
 		omapi_object_dereference (lp, MDL);
@@ -418,7 +418,7 @@ isc_result_t dhcp_group_remove (omapi_object_t *lp,
 	struct group_object *group;
 	isc_result_t status;
 	if (lp -> type != dhcp_type_group)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	group = (struct group_object *)lp;
 
 	group -> flags |= GROUP_OBJECT_DELETED;
@@ -442,7 +442,7 @@ isc_result_t dhcp_control_set_value  (omapi_object_t *h,
 	unsigned long newstate;
 
 	if (h -> type != dhcp_type_control)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	control = (dhcp_control_object_t *)h;
 
 	if (!omapi_ds_strcmp (name, "state")) {
@@ -459,7 +459,7 @@ isc_result_t dhcp_control_set_value  (omapi_object_t *h,
 	if (h -> inner && h -> inner -> type -> set_value) {
 		status = ((*(h -> inner -> type -> set_value))
 			  (h -> inner, id, name, value));
-		if (status == ISC_R_SUCCESS || status == ISC_R_UNCHANGED)
+		if (status == ISC_R_SUCCESS || status == DHCP_R_UNCHANGED)
 			return status;
 	}
 			  
@@ -475,7 +475,7 @@ isc_result_t dhcp_control_get_value (omapi_object_t *h, omapi_object_t *id,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_control)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	control = (dhcp_control_object_t *)h;
 
 	if (!omapi_ds_strcmp (name, "state"))
@@ -496,7 +496,7 @@ isc_result_t dhcp_control_destroy (omapi_object_t *h,
 				   const char *file, int line)
 {
 	if (h -> type != dhcp_type_control)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Can't destroy the control object. */
 	return ISC_R_NOPERM;
@@ -506,10 +506,11 @@ isc_result_t dhcp_control_signal_handler (omapi_object_t *h,
 					const char *name, va_list ap)
 {
 	/* In this function h should be a (dhcp_control_object_t *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_control)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Try to find some inner object that can take the value. */
 	if (h -> inner && h -> inner -> type -> get_value) {
@@ -529,7 +530,7 @@ isc_result_t dhcp_control_stuff_values (omapi_object_t *c,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_control)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	control = (dhcp_control_object_t *)h;
 
 	/* Write out all the values. */
@@ -573,7 +574,7 @@ isc_result_t dhcp_control_lookup (omapi_object_t **lp,
 			/* Don't return the object if the type is wrong. */
 			if ((*lp) -> type != dhcp_type_control) {
 				omapi_object_dereference (lp, MDL);
-				return ISC_R_INVALIDARG;
+				return DHCP_R_INVALIDARG;
 			}
 		}
 	}
@@ -606,10 +607,11 @@ isc_result_t dhcp_subnet_set_value  (omapi_object_t *h,
 				     omapi_typed_data_t *value)
 {
 	/* In this function h should be a (struct subnet *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_subnet)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* No values to set yet. */
 
@@ -617,7 +619,7 @@ isc_result_t dhcp_subnet_set_value  (omapi_object_t *h,
 	if (h -> inner && h -> inner -> type -> set_value) {
 		status = ((*(h -> inner -> type -> set_value))
 			  (h -> inner, id, name, value));
-		if (status == ISC_R_SUCCESS || status == ISC_R_UNCHANGED)
+		if (status == ISC_R_SUCCESS || status == DHCP_R_UNCHANGED)
 			return status;
 	}
 
@@ -630,10 +632,11 @@ isc_result_t dhcp_subnet_get_value (omapi_object_t *h, omapi_object_t *id,
 				    omapi_value_t **value)
 {
 	/* In this function h should be a (struct subnet *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_subnet)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* No values to get yet. */
 
@@ -652,7 +655,7 @@ isc_result_t dhcp_subnet_destroy (omapi_object_t *h, const char *file, int line)
 	struct subnet *subnet;
 
 	if (h -> type != dhcp_type_subnet)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	subnet = (struct subnet *)h;
 	if (subnet -> next_subnet)
@@ -674,10 +677,11 @@ isc_result_t dhcp_subnet_signal_handler (omapi_object_t *h,
 					 const char *name, va_list ap)
 {
 	/* In this function h should be a (struct subnet *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_subnet)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Can't write subnets yet. */
 
@@ -697,10 +701,11 @@ isc_result_t dhcp_subnet_stuff_values (omapi_object_t *c,
 				       omapi_object_t *h)
 {
 	/* In this function h should be a (struct subnet *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_subnet)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Can't stuff subnet values yet. */
 
@@ -724,7 +729,7 @@ isc_result_t dhcp_subnet_lookup (omapi_object_t **lp,
 	/* If we get to here without finding a subnet, no valid key was
 	   specified. */
 	if (!*lp)
-		return ISC_R_NOKEYS;
+		return DHCP_R_NOKEYS;
 	return ISC_R_SUCCESS;
 }
 
@@ -746,10 +751,11 @@ isc_result_t dhcp_shared_network_set_value  (omapi_object_t *h,
 					     omapi_typed_data_t *value)
 {
 	/* In this function h should be a (struct shared_network *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_shared_network)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* No values to set yet. */
 
@@ -757,7 +763,7 @@ isc_result_t dhcp_shared_network_set_value  (omapi_object_t *h,
 	if (h -> inner && h -> inner -> type -> set_value) {
 		status = ((*(h -> inner -> type -> set_value))
 			  (h -> inner, id, name, value));
-		if (status == ISC_R_SUCCESS || status == ISC_R_UNCHANGED)
+		if (status == ISC_R_SUCCESS || status == DHCP_R_UNCHANGED)
 			return status;
 	}
 
@@ -771,10 +777,11 @@ isc_result_t dhcp_shared_network_get_value (omapi_object_t *h,
 					    omapi_value_t **value)
 {
 	/* In this function h should be a (struct shared_network *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_shared_network)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* No values to get yet. */
 
@@ -796,7 +803,7 @@ isc_result_t dhcp_shared_network_destroy (omapi_object_t *h,
 	struct shared_network *shared_network;
 
 	if (h -> type != dhcp_type_shared_network)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	shared_network = (struct shared_network *)h;
 	if (shared_network -> next)
@@ -831,10 +838,11 @@ isc_result_t dhcp_shared_network_signal_handler (omapi_object_t *h,
 						 va_list ap)
 {
 	/* In this function h should be a (struct shared_network *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_shared_network)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Can't write shared_networks yet. */
 
@@ -854,10 +862,11 @@ isc_result_t dhcp_shared_network_stuff_values (omapi_object_t *c,
 					       omapi_object_t *h)
 {
 	/* In this function h should be a (struct shared_network *) */
+
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_shared_network)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Can't stuff shared_network values yet. */
 
@@ -881,7 +890,7 @@ isc_result_t dhcp_shared_network_lookup (omapi_object_t **lp,
 	/* If we get to here without finding a shared_network, no valid key was
 	   specified. */
 	if (!*lp)
-		return ISC_R_NOKEYS;
+		return DHCP_R_NOKEYS;
 	return ISC_R_SUCCESS;
 }
 

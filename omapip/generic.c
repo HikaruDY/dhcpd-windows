@@ -3,7 +3,7 @@
    Subroutines that support the generic object. */
 
 /*
- * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007,2009,2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -55,16 +55,13 @@ isc_result_t omapi_generic_set_value (omapi_object_t *h,
 	isc_result_t status;
 
 	if (h -> type != omapi_type_generic)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	g = (omapi_generic_object_t *)h;
 
 	/* See if there's already a value with this name attached to
 	   the generic object, and if so, replace the current value
 	   with the new one. */
 	for (i = 0; i < g -> nvalues; i++) {
-		if (!g -> values[i])
-			continue;
-
 		if (!omapi_data_string_cmp (name, g -> values [i] -> name)) {
 			/* There's an inconsistency here: the standard
 			   behaviour of a set_values method when
@@ -174,7 +171,7 @@ isc_result_t omapi_generic_get_value (omapi_object_t *h,
 	omapi_generic_object_t *g;
 
 	if (h -> type != omapi_type_generic)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	g = (omapi_generic_object_t *)h;
 	
 	/* Look up the specified name in our list of objects. */
@@ -229,7 +226,7 @@ isc_result_t omapi_generic_signal_handler (omapi_object_t *h,
 					   const char *name, va_list ap)
 {
 	if (h -> type != omapi_type_generic)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	
 	if (h -> inner && h -> inner -> type -> signal_handler)
 		return (*(h -> inner -> type -> signal_handler)) (h -> inner,
@@ -249,7 +246,7 @@ isc_result_t omapi_generic_stuff_values (omapi_object_t *c,
 	isc_result_t status;
 
 	if (g -> type != omapi_type_generic)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	src = (omapi_generic_object_t *)g;
 	
 	for (i = 0; i < src -> nvalues; i++) {
@@ -289,7 +286,7 @@ isc_result_t omapi_generic_clear_flags (omapi_object_t *o)
 	omapi_generic_object_t *g;
 
 	if (o -> type != omapi_type_generic)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	g = (omapi_generic_object_t *)o;
 
 	for (i = 0; i < g -> nvalues; i++) {

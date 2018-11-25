@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2012 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (C) 2006-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) 2006-2016 by Internet Systems Consortium, Inc. ("ISC")
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -172,6 +171,11 @@ dhcpleasequery(struct packet *packet, int ms_nulltp) {
 	/* 
 	 * We can't reply if there is no giaddr field.
 	 */
+	/*
+	 * Note: this makes DHCPv4-over-DHCPv6 always fail but it should not
+	 * really be a problem because it is not a specified use case
+	 * (or even one that makes sense).
+	 */
 	if (!packet->raw->giaddr.s_addr) {
 		log_info("%s: missing giaddr, ciaddr is %s, no reply sent", 
 			 msgbuf, inet_ntoa(packet->raw->ciaddr));
@@ -204,26 +208,16 @@ dhcpleasequery(struct packet *packet, int ms_nulltp) {
 		return;
 	}
 
-	execute_statements_in_scope(NULL,
-				    packet,
-				    NULL,
-				    NULL,
-				    packet->options,
-				    options,
-				    &global_scope,
-				    relay_group,
-				    NULL);
+	execute_statements_in_scope(NULL, packet, NULL, NULL, packet->options,
+				    options, &global_scope, relay_group,
+				    NULL, NULL);
 
 	for (i=packet->class_count-1; i>=0; i--) {
-		execute_statements_in_scope(NULL,
-					    packet,
-					    NULL,
-					    NULL,
-					    packet->options,
-					    options,
+		execute_statements_in_scope(NULL, packet, NULL, NULL,
+					    packet->options, options,
 					    &global_scope,
 					    packet->classes[i]->group,
-					    relay_group);
+					    relay_group, NULL);
 	}
 
 	/* 
@@ -775,7 +769,7 @@ get_lq_query(struct lq6_state *lq)
 	 * Verify our lq_query structure is empty.
 	 */
 	if ((lq_query->data != NULL) || (lq_query->len != 0)) {
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	}
 
 	oc = lookup_option(&dhcpv6_universe, packet->options, D6O_LQ_QUERY);
@@ -1093,7 +1087,7 @@ dhcpv6_leasequery(struct data_string *reply_ret, struct packet *packet) {
 	}
 	execute_statements_in_scope(NULL, lq.packet, NULL, NULL,
 				    lq.packet->options, lq.reply_opts,
-				    &global_scope, root_group, NULL);
+				    &global_scope, root_group, NULL, NULL);
 
 	lq.buf.reply.msg_type = DHCPV6_LEASEQUERY_REPLY;
 

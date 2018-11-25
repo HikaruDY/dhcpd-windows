@@ -3,7 +3,7 @@
    Parser for dhclient config and lease files... */
 
 /*
- * Copyright (c) 2004-2014 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,7 +32,8 @@
 struct client_config top_level_config;
 
 #define NUM_DEFAULT_REQUESTED_OPTS	9
-struct option *default_requested_options[NUM_DEFAULT_REQUESTED_OPTS + 1];
+/* There can be 2 extra requested options for DHCPv4-over-DHCPv6. */
+struct option *default_requested_options[NUM_DEFAULT_REQUESTED_OPTS + 2 + 1];
 
 static void parse_client_default_duid(struct parse *cfile);
 static void parse_client6_lease_statement(struct parse *cfile);
@@ -43,6 +44,8 @@ static struct dhc6_ia *parse_client6_ia_pd_statement(struct parse *cfile);
 static struct dhc6_addr *parse_client6_iaaddr_statement(struct parse *cfile);
 static struct dhc6_addr *parse_client6_iaprefix_statement(struct parse *cfile);
 #endif /* DHCPv6 */
+
+static void parse_lease_id_format (struct parse *cfile);
 
 /* client-conf-file :== client-declarations END_OF_FILE
    client-declarations :== <nil>
@@ -120,6 +123,43 @@ isc_result_t read_client_conf ()
 				  "assembly.", code);
 	}
 
+#ifdef DHCP4o6
+	/* DHCPv4-over-DHCPv6 extra requested options in code order */
+	if (dhcpv4_over_dhcpv6 == 1) {
+		/* The DHCP4o6 server option should be requested */
+		code = D6O_DHCP4_O_DHCP6_SERVER;
+		option_code_hash_lookup(&default_requested_options[9],
+					dhcpv6_universe.code_hash,
+					&code, 0, MDL);
+		if (default_requested_options[9] == NULL) {
+			log_fatal("Unable to find option definition for "
+				  "index %u during default parameter request "
+				  "assembly.", code);
+		}
+	} else if (dhcpv4_over_dhcpv6 > 1) {
+		/* Called from run_stateless so the IRT should
+		   be requested too */
+		code = D6O_INFORMATION_REFRESH_TIME;
+		option_code_hash_lookup(&default_requested_options[9],
+					dhcpv6_universe.code_hash,
+					&code, 0, MDL);
+		if (default_requested_options[9] == NULL) {
+			log_fatal("Unable to find option definition for "
+				  "index %u during default parameter request "
+				  "assembly.", code);
+		}
+		code = D6O_DHCP4_O_DHCP6_SERVER;
+		option_code_hash_lookup(&default_requested_options[10],
+					dhcpv6_universe.code_hash,
+					&code, 0, MDL);
+		if (default_requested_options[10] == NULL) {
+			log_fatal("Unable to find option definition for "
+				  "index %u during default parameter request "
+				  "assembly.", code);
+		}
+	}
+#endif
+					
 	/* Initialize the top level client configuration. */
 	memset (&top_level_config, 0, sizeof top_level_config);
 
@@ -130,6 +170,7 @@ isc_result_t read_client_conf ()
 	top_level_config.retry_interval = 300;
 	top_level_config.backoff_cutoff = 15;
 	top_level_config.initial_interval = 3;
+	top_level_config.lease_id_format = TOKEN_OCTAL;
 
 	/*
 	 * RFC 2131, section 4.4.1 specifies that the client SHOULD wait a
@@ -237,12 +278,51 @@ int read_client_conf_file (const char *name, struct interface_info *ip,
 	} while (1);
 	skip_token(&val, (unsigned *)0, cfile);
 	status = (cfile -> warnings_occurred
-		  ? ISC_R_BADPARSE
+		  ? DHCP_R_BADPARSE
 		  : ISC_R_SUCCESS);
 	end_parse (&cfile);
 	return status;
 }
 
+
+/* lease-file :== client-lease-statements END_OF_FILE
+   client-lease-statements :== <nil>
+		     | client-lease-statements LEASE client-lease-statement
+ * This routine looks through a lease file and only tries to parse
+ * the duid statements.
+ */
+
+void read_client_duid ()
+{
+	int file;
+	isc_result_t status;
+	struct parse *cfile;
+	const char *val;
+	int token;
+
+	/* Open the lease file.   If we can't open it, just return -
+	   we can safely trust the server to remember our state. */
+	if ((file = open (path_dhclient_duid, O_RDONLY)) < 0)
+		return;
+
+	cfile = NULL;
+	status = new_parse(&cfile, file, NULL, 0, path_dhclient_duid, 0);
+	if (status != ISC_R_SUCCESS || cfile == NULL)
+		return;
+
+	while ((token = next_token(&val, NULL, cfile)) != END_OF_FILE) {
+		/*
+		 * All we care about is DUIDs - if we get anything else
+		 * just toss it and continue looking for DUIDs until we
+		 * run out of file.  
+		 */
+		if (token == DEFAULT_DUID) {
+			parse_client_default_duid(cfile);
+		}
+	}
+
+	end_parse(&cfile);
+}
 
 /* lease-file :== client-lease-statements END_OF_FILE
    client-lease-statements :== <nil>
@@ -564,6 +644,17 @@ void parse_client_statement (cfile, ip, config)
 		}
 		return;
 
+	      case ANYCAST_MAC:
+		skip_token(&val, NULL, cfile);
+		if (ip != NULL) {
+			parse_hardware_param(cfile, &ip->anycast_mac_addr);
+		} else {
+			parse_warn(cfile, "anycast mac address parameter "
+				   "not allowed here.");
+			skip_to_semi (cfile);
+		}
+		return;
+
 	      case REQUEST:
 		skip_token(&val, (unsigned *)0, cfile);
 		if (config -> requested_options == default_requested_options)
@@ -720,6 +811,12 @@ void parse_client_statement (cfile, ip, config)
 		skip_token(&val, (unsigned *)0, cfile);
 		parse_reject_statement (cfile, config);
 		return;
+
+	      case LEASE_ID_FORMAT:
+		skip_token(&val, (unsigned *)0, cfile);
+		parse_lease_id_format(cfile);
+		break;
+
 
 	      default:
 		lose = 0;
@@ -1236,25 +1333,17 @@ static void
 parse_client_default_duid(struct parse *cfile)
 {
 	struct data_string new_duid;
-	const char *val = NULL;
+	u_int8_t buf[128];
 	unsigned len;
-	int token;
 
-	memset(&new_duid, 0, sizeof(new_duid));
-
-	token = next_token(&val, &len, cfile);
-	if (token != STRING) {
-		parse_warn(cfile, "Expected DUID string.");
-		skip_to_semi(cfile);
-		return;
-	}
-
+	len = parse_X(cfile, buf, sizeof(buf));
 	if (len <= 2) {
 		parse_warn(cfile, "Invalid DUID contents.");
 		skip_to_semi(cfile);
 		return;
 	}
 
+	memset(&new_duid, 0, sizeof(new_duid));
 	if (!buffer_allocate(&new_duid.buffer, len, MDL)) {
 		parse_warn(cfile, "Out of memory parsing default DUID.");
 		skip_to_semi(cfile);
@@ -1263,7 +1352,7 @@ parse_client_default_duid(struct parse *cfile)
 	new_duid.data = new_duid.buffer->data;
 	new_duid.len = len;
 
-	memcpy(new_duid.buffer->data, val, len);
+	memcpy(new_duid.buffer->data, buf, len);
 
 	/* Rotate the last entry into place. */
 	if (default_duid.buffer != NULL)
@@ -2221,4 +2310,46 @@ int parse_allow_deny (oc, cfile, flag)
 	parse_warn (cfile, "allow/deny/ignore not permitted here.");
 	skip_to_semi (cfile);
 	return 0;
+}
+
+
+
+/*!
+ * \brief Parses an lease-id-format statement
+ *
+ * A valid statement looks like this:
+ *
+ *	lease-id-format :==
+ *		LEASE_ID_FORMAT TOKEN_OCTAL | TOKEN_HEX ;
+ *
+ * This function is used to parse the lease-id-format statement. It sets
+ * top_level_config.lease_id_format.
+ *
+ * \param cfile the current parse file
+ *
+*/
+void parse_lease_id_format (struct parse *cfile)
+{
+	enum dhcp_token token;
+	const char *val;
+
+	token = next_token(&val, NULL, cfile);
+	switch(token) {
+	case TOKEN_OCTAL:
+		top_level_config.lease_id_format = TOKEN_OCTAL;
+		break;
+	case TOKEN_HEX:
+		top_level_config.lease_id_format = TOKEN_HEX;
+		break;
+	default:
+		parse_warn(cfile, "lease-id-format is invalid: "
+                                   " it must be octal or hex.");
+		skip_to_semi(cfile);
+		return;
+	}
+
+	log_debug("lease_id_format is: %s",
+		  (top_level_config.lease_id_format == TOKEN_OCTAL
+		   ? "octal" : "hex"));
+
 }

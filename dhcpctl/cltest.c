@@ -28,13 +28,15 @@
  * by Brian Murrell.
  */
 
+#include "config.h"
+
 #include <time.h>
 #include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <isc-dhcp/result.h>
+#include "omapip/result.h"
 #include "dhcpctl.h"
 
 int main (int, char **);

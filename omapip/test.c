@@ -34,15 +34,24 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
-#include <isc-dhcp/result.h>
+#include <omapip/result.h>
 #include <sys/time.h>
 #include <omapip/omapip.h>
+#include <omapip/isclib.h>
 
 int main (int argc, char **argv)
 {
 	omapi_object_t *listener = (omapi_object_t*)0;
 	omapi_object_t *connection = (omapi_object_t*)0;
 	isc_result_t status;
+
+	status = dhcp_context_create(DHCP_CONTEXT_PRE_DB | DHCP_CONTEXT_POST_DB,
+				     NULL, NULL);
+	if (status != ISC_R_SUCCESS) {
+		fprintf(stderr, "Can't initialize context: %s\n",
+			isc_result_totext(status));
+		exit(1);
+	}
 
 	status = omapi_init ();
 	if (status != ISC_R_SUCCESS) {

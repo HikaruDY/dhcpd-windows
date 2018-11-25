@@ -1,6 +1,6 @@
-.\"	$Id: dhclient.conf.5,v 1.22.64.7.6.3 2012/04/16 17:18:22 sar Exp $
+.\"	$Id: dhclient.conf.5,v 1.34 2012/01/24 22:23:39 sar Exp $
 .\"
-.\" Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 1996-2003 by Internet Software Consortium
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
@@ -266,11 +266,6 @@ options will be ignored.  There is no default require list.
 		also require domain-search;
 	}
 .fi
-
-NOTE: For ISC DHCP release 4.1-ESV-R14 and earlier, dhclient running in -6
-mode does not discard offers as described above. This has been corrected as of
-release 4.1-ESV-R15 but must be enabled at compile time (see
-ENFORCE_DHCPV6_CLIENT_REQUIRE in includes/site.h).
 .PP
 .I The
 .B send
@@ -301,7 +296,7 @@ server (see \fBdhcpd.conf\fR(5) for details).  You also need to
 configure the \fIfqdn\fR option on the client, as follows:
 .PP
 .nf
-  send fqdn.fqdn "grosse.example.com.";
+  send fqdn.fqdn "grosse.fugue.com.";
   send fqdn.encoded on;
   send fqdn.server-update off;
   also request fqdn, dhcp6.fqdn;
@@ -603,6 +598,28 @@ the time value, and helpfully places a local timezone time in a comment on
 the same line.  The formats are described in detail in this manpage, within
 the LEASE DECLARATIONS section.
 .PP
+The
+.I lease-id-format
+parameter
+.RS 0.25i
+.PP
+.B lease-id-format \fIformat\fB;\fR
+.PP
+The \fIformat\fR parameter must be either \fBoctal\fR or \fBhex\fR.
+This parameter governs the format used to write certain values to lease
+files. With the default format, octal, values are written as quoted strings in
+which non-printable characters are represented as octal escapes -
+a backslash character followed by three octal digits.  When the hex format
+is specified, values are written as an unquoted series of hexadecimal digit
+pairs, separated by colons.
+
+Currently, the values written out based on lease-id-format are the default-duid
+and the IAID value (DHCPv6 only).  The client automatically reads the values
+in either format.  Note that when the format is octal, rather than as an octal
+string, IAID is output as hex if it contains no printable characters or as a
+string if contains only printable characters. This is done to maintain backward
+compatibility.
+.PP
  \fBreject \fIcidr-ip-address\fR [\fB,\fR \fI...\fB \fIcidr-ip-address\fR ] \fB;\fR
 .PP
 The
@@ -695,10 +712,33 @@ database and will record the media type used to acquire the address.
 Whenever the client tries to renew the lease, it will use that same
 media type.  The lease must expire before the client will go back to
 cycling through media types.
+.PP
+ \fBhardware\fR \fIlink-type mac-address\fR\fB;\fR
+.PP
+The
+.B hardware
+statement defines the hardware MAC address to use for this interface,
+for DHCP servers or relays to direct their replies.  dhclient will determine
+the interface's MAC address automatically, so use of this parameter
+is not recommended.  The \fIlink-type\fR corresponds to the interface's
+link layer type (example: \'ethernet\'), while the \fImac-address\fR is
+a string of colon-separated hexadecimal values for octets.
+.PP
+ \fBanycast-mac\fR \fIlink-type mac-address\fR\fB;\fR
+.PP
+The
+.B anycast-mac
+statement over-rides the all-ones broadcast MAC address dhclient will use
+when it is transmitting packets to the all-ones limited broadcast IPv4
+address.  This configuration parameter is useful to reduce the number of
+broadcast packets transmitted by DHCP clients, but is only useful if you
+know the DHCP service(s) anycast MAC address prior to configuring your
+client.  The \fIlink-type\fR and \fImac-address\fR parameters are configured
+in a similar manner to the \fBhardware\fR statement.
+.PP
 .SH SAMPLE
-The following configuration file was used on a laptop running NetBSD
-1.3, though the domains have been modified.
-The laptop has an IP alias of 192.5.5.213, and has one
+The following configuration file is used on a laptop running NetBSD
+1.3.  The laptop has an IP alias of 192.5.5.213, and has one
 interface, ep0 (a 3com 3C589C).  Booting intervals have been
 shortened somewhat from the default, because the client is known to
 spend most of its time on networks with little DHCP activity.  The
@@ -714,10 +754,11 @@ initial-interval 2;
 reject 192.33.137.209;
 
 interface "ep0" {
-    send host-name "andare.example.com";
+    send host-name "andare.fugue.com";
+    hardware ethernet 00:a0:24:ab:fb:9c;
     send dhcp-client-identifier 1:0:a0:24:ab:fb:9c;
     send dhcp-lease-time 3600;
-    supersede domain-search "example.com", "rc.isc.org", "home.isc.org";
+    supersede domain-search "fugue.com", "rc.vix.com", "home.vix.com";
     prepend domain-name-servers 127.0.0.1;
     request subnet-mask, broadcast-address, time-offset, routers,
 	    domain-name, domain-name-servers, host-name;

@@ -110,9 +110,6 @@ struct binding_value {
 		struct data_string data;
 		unsigned long intval;
 		int boolean;
-#if defined (NSUPDATE)
-		ns_updrec *dns;
-#endif
 		struct fundef *fundef;
 		struct binding_value *bv;
 	} value;
@@ -193,6 +190,8 @@ enum expr_op {
 	expr_lcase,
 	expr_regex_match,
 	expr_iregex_match,
+	expr_gethostname,
+	expr_v6relay,
 	expr_concat_dclist
 };
 
@@ -276,6 +275,10 @@ struct expression {
 			struct expression *arglist;
 		} funcall;
 		struct fundef *func;
+		struct {
+			struct expression *relay;
+			struct expression *roption;
+		} v6relay;
 	} data;
 	int flags;
 #	define EXPR_EPHEMERAL	1

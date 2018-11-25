@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2016 Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) 2012-2015 Internet Systems Consortium, Inc. ("ISC")
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -52,7 +52,7 @@ ATF_TC_HEAD(load_balance, tc)
 
 ATF_TC_BODY(load_balance, tc)
 {
-#if defined(FAILOVER_PROTOCOL)
+#if defined(FAILOVER_PROTOCOL) 
 	struct packet packet;
 	struct dhcp_packet raw;
 	dhcp_failover_state_t pstate, sstate;
@@ -133,7 +133,7 @@ ATF_TC_HEAD(load_balance_swap, tc)
 
 ATF_TC_BODY(load_balance_swap, tc)
 {
-#if defined(FAILOVER_PROTOCOL)
+#if defined(FAILOVER_PROTOCOL) 
 #if defined(SECS_BYTEORDER)
 	struct packet packet;
 	struct dhcp_packet raw;

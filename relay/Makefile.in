@@ -104,7 +104,8 @@ PROGRAMS = $(sbin_PROGRAMS)
 am_dhcrelay_OBJECTS = dhcrelay.$(OBJEXT)
 dhcrelay_OBJECTS = $(am_dhcrelay_OBJECTS)
 dhcrelay_DEPENDENCIES = ../common/libdhcp.a ../omapip/libomapi.a \
-	../dst/libdst.a ../minires/libres.a
+	$(BINDLIBDIR)/libirs.a $(BINDLIBDIR)/libdns.a \
+	$(BINDLIBDIR)/libisccfg.a $(BINDLIBDIR)/libisc.a
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -194,6 +195,7 @@ DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
+AR = @AR@
 ATF_BIN = @ATF_BIN@
 ATF_CFLAGS = @ATF_CFLAGS@
 ATF_LDFLAGS = @ATF_LDFLAGS@
@@ -201,6 +203,9 @@ AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+BINDCONFIG = @BINDCONFIG@
+BINDDIR = @BINDDIR@
+BINDSRCDIR = @BINDSRCDIR@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -209,6 +214,7 @@ CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DISTCHECK_ATF_CONFIGURE_FLAG = @DISTCHECK_ATF_CONFIGURE_FLAG@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -220,6 +226,8 @@ INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+LDAP_CFLAGS = @LDAP_CFLAGS@
+LDAP_LIBS = @LDAP_LIBS@
 LDFLAGS = @LDFLAGS@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
@@ -294,9 +302,13 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
+BINDLIBDIR = @BINDDIR@/lib
 AM_CPPFLAGS = -DLOCALSTATEDIR='"@localstatedir@"'
 dhcrelay_SOURCES = dhcrelay.c
-dhcrelay_LDADD = ../common/libdhcp.a ../omapip/libomapi.a ../dst/libdst.a ../minires/libres.a
+dhcrelay_LDADD = ../common/libdhcp.a ../omapip/libomapi.a \
+		 $(BINDLIBDIR)/libirs.a $(BINDLIBDIR)/libdns.a \
+		 $(BINDLIBDIR)/libisccfg.a $(BINDLIBDIR)/libisc.a
+
 man_MANS = dhcrelay.8
 EXTRA_DIST = $(man_MANS)
 all: all-am
