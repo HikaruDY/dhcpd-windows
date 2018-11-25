@@ -3,8 +3,7 @@
    BOOTP Protocol support. */
 
 /*
- * Copyright (c) 2009,2012-2014 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2004,2005,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -154,28 +153,26 @@ void bootp (packet)
 	option_state_allocate (&options, MDL);
 
 	/* Execute the subnet statements. */
-	execute_statements_in_scope ((struct binding_value **)0,
-				     packet, lease, (struct client_state *)0,
-				     packet -> options, options,
-				     &lease -> scope, lease -> subnet -> group,
-				     (struct group *)0);
+	execute_statements_in_scope (NULL, packet, lease, NULL,
+				     packet->options, options,
+				     &lease->scope, lease->subnet->group,
+				     NULL, NULL);
 
 	/* Execute statements from class scopes. */
 	for (i = packet -> class_count; i > 0; i--) {
-		execute_statements_in_scope
-			((struct binding_value **)0,
-			 packet, lease, (struct client_state *)0,
-			 packet -> options, options,
-			 &lease -> scope, packet -> classes [i - 1] -> group,
-			 lease -> subnet -> group);
+		execute_statements_in_scope(NULL, packet, lease, NULL,
+					    packet->options, options,
+					    &lease->scope,
+					    packet->classes[i - 1]->group,
+					    lease->subnet->group, NULL);
 	}
 
 	/* Execute the host statements. */
 	if (hp != NULL) {
-		execute_statements_in_scope (NULL, packet, lease, NULL,
-					     packet->options, options,
-					     &lease->scope,
-					     hp->group, lease->subnet->group);
+		execute_statements_in_scope(NULL, packet, lease, NULL,
+					    packet->options, options,
+					    &lease->scope, hp->group,
+					    lease->subnet->group, NULL);
 	}
 	
 	/* Drop the request if it's not allowed for this client. */
@@ -345,13 +342,40 @@ void bootp (packet)
 	}
 
 	/* Execute the commit statements, if there are any. */
-	execute_statements ((struct binding_value **)0,
-			    packet, lease, (struct client_state *)0,
-			    packet -> options,
-			    options, &lease -> scope, lease -> on_commit);
+	execute_statements (NULL, packet, lease, NULL, packet->options,
+			    options, &lease->scope, lease->on_star.on_commit,
+			    NULL);
 
 	/* We're done with the option state. */
 	option_state_dereference (&options, MDL);
+
+#if defined(DHCPv6) && defined(DHCP4o6)
+	if (dhcpv4_over_dhcpv6 && (packet->dhcp4o6_response != NULL)) {
+		/* Report what we're doing... */
+		log_info("%s", msgbuf);
+		log_info("DHCP4o6 BOOTREPLY for %s to %s (%s) via %s",
+			 piaddr(lease->ip_addr),
+			 ((hp != NULL) && (hp->name != NULL)) ?
+				hp -> name : "unknown",
+			 print_hw_addr (packet->raw->htype,
+					packet->raw->hlen,
+					packet->raw->chaddr),
+			 piaddr(packet->client_addr));
+
+		/* fill dhcp4o6_response */
+		packet->dhcp4o6_response->len = outgoing.packet_length;
+		packet->dhcp4o6_response->buffer = NULL;
+		if (!buffer_allocate(&packet->dhcp4o6_response->buffer,
+				     outgoing.packet_length, MDL)) {
+			log_fatal("No memory to store DHCP4o6 reply.");
+		}
+		packet->dhcp4o6_response->data =
+			packet->dhcp4o6_response->buffer->data;
+		memcpy(packet->dhcp4o6_response->buffer->data,
+		       outgoing.raw, outgoing.packet_length);
+		goto out;
+	}
+#endif
 
 	/* Set up the hardware destination address... */
 	hto.hbuf [0] = packet -> raw -> htype;

@@ -3,11 +3,17 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
+/* Define to support binary insertion of leases into queues. */
+#undef BINARY_LEASES
+
 /* Define to compile debug-only DHCP software. */
 #undef DEBUG
 
 /* Define to queue multiple DHCPACK replies per fsync. */
 #undef DELAYED_ACK
+
+/* Define to 1 to include DHCPv4 over DHCPv6 support. */
+#undef DHCP4o6
 
 /* Define to BIG_ENDIAN for MSB (Motorola or SPARC CPUs) or LITTLE_ENDIAN for
    LSB (Intel CPUs). */
@@ -40,7 +46,7 @@
 /* Define to 1 to use the Berkeley Packet Filter interface code. */
 #undef HAVE_BPF
 
-/* Define to 1 if you have the /dev/random file. */
+/* Define to 1 if you have the /dev/random or other configured file. */
 #undef HAVE_DEV_RANDOM
 
 /* Define to 1 to use DLPI interface code. */
@@ -49,8 +55,17 @@
 /* Define to 1 if you have the <ifaddrs.h> header file. */
 #undef HAVE_IFADDRS_H
 
+/* Define to 1 if you have the `inet_ntop' function. */
+#undef HAVE_INET_NTOP
+
+/* Define to 1 if you have the `inet_pton' function. */
+#undef HAVE_INET_PTON
+
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the <ldap.h> header file. */
+#undef HAVE_LDAP_H
 
 /* Define to 1 if you have the <linux/types.h> header file. */
 #undef HAVE_LINUX_TYPES_H
@@ -60,6 +75,9 @@
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
+
+/* Define to 1 if you have the <micasa_mgmd.h> header file. */
+#undef HAVE_MICASA_MGMD_H
 
 /* Define to 1 if you have the <net/if6.h> header file. */
 #undef HAVE_NET_IF6_H
@@ -223,9 +241,6 @@
 
 /* File for dhcpd6 process information. */
 #undef _PATH_DHCPD6_PID
-
-/* Default file containing dhcpd configuration. */
-#undef _PATH_DHCPD_CONF
 
 /* File for dhcpd leases. */
 #undef _PATH_DHCPD_DB

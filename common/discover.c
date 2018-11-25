@@ -3,7 +3,7 @@
    Find and identify the network interfaces. */
 
 /*
- * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -44,6 +44,7 @@ int interfaces_invalidated;
 int quiet_interface_discovery;
 u_int16_t local_port;
 u_int16_t remote_port;
+int dhcpv4_over_dhcpv6 = 0;
 int (*dhcp_interface_setup_hook) (struct interface_info *, struct iaddr *);
 int (*dhcp_interface_discovery_hook) (struct interface_info *);
 isc_result_t (*dhcp_interface_startup_hook) (struct interface_info *);
@@ -331,8 +332,8 @@ next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 			continue;
 		}
 
-		memset(info, 0, sizeof(struct iface_info));
-		strncpy(info->name, p->lifr_name, sizeof(info->name) - 1);
+		strcpy(info->name, p->lifr_name);
+		memset(&info->addr, 0, sizeof(info->addr));
 		memcpy(&info->addr, &p->lifr_addr, sizeof(p->lifr_addr));
 
 #if defined(sun) || defined(__linux)
@@ -348,7 +349,7 @@ next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 		 (strncmp(info->name, "dummy", 5) == 0));
 	
 	memset(&tmp, 0, sizeof(tmp));
-	strncpy(tmp.lifr_name, info->name, sizeof(tmp.lifr_name) - 1);
+	strcpy(tmp.lifr_name, info->name);
 	if (ioctl(ifaces->sock, SIOCGLIFFLAGS, &tmp) < 0) {
 		log_error("Error getting interface flags for '%s'; %m", 
 			  p->lifr_name);
@@ -372,13 +373,391 @@ end_iface_scan(struct iface_conf_list *ifaces) {
 	ifaces->sock = -1;
 }
 
+#elif __linux /* !HAVE_SIOCGLIFCONF */
+/* 
+ * Linux support
+ * -------------
+ *
+ * In Linux, we use the /proc pseudo-filesystem to get information
+ * about interfaces, along with selected ioctl() calls.
+ *
+ * Linux low level access is documented in the netdevice man page.
+ */
+
+/* 
+ * Structure holding state about the scan.
+ */
+struct iface_conf_list {
+	int sock;	/* file descriptor used to get information */
+	FILE *fp;	/* input from /proc/net/dev */
+#ifdef DHCPv6
+	FILE *fp6;	/* input from /proc/net/if_inet6 */
+#endif
+};
+
+/* 
+ * Structure used to return information about a specific interface.
+ */
+struct iface_info {
+	char name[IFNAMSIZ];		/* name of the interface, e.g. "eth0" */
+	struct sockaddr_storage addr;	/* address information */
+	isc_uint64_t flags;		/* interface flags, e.g. IFF_LOOPBACK */
+};
+
+/* 
+ * Start a scan of interfaces.
+ *
+ * The iface_conf_list structure maintains state for this process.
+ */
+int 
+begin_iface_scan(struct iface_conf_list *ifaces) {
+	char buf[IF_LINE_LENGTH];
+	int len;
+	int i;
+
+	ifaces->fp = fopen("/proc/net/dev", "r");
+	if (ifaces->fp == NULL) {
+		log_error("Error opening '/proc/net/dev' to list interfaces");
+		return 0;
+	}
+
+	/*
+	 * The first 2 lines are header information, so read and ignore them.
+	 */
+	for (i=0; i<2; i++) {
+		if (fgets(buf, sizeof(buf), ifaces->fp) == NULL) {
+			log_error("Error reading headers from '/proc/net/dev'");
+			fclose(ifaces->fp);
+			ifaces->fp = NULL;
+			return 0;
+		}
+		len = strlen(buf);
+		if ((len <= 0) || (buf[len-1] != '\n')) { 
+			log_error("Bad header line in '/proc/net/dev'");
+			fclose(ifaces->fp);
+			ifaces->fp = NULL;
+			return 0;
+		}
+	}
+
+	ifaces->sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (ifaces->sock < 0) {
+		log_error("Error creating socket to list interfaces; %m");
+		fclose(ifaces->fp);
+		ifaces->fp = NULL;
+		return 0;
+	}
+
+#ifdef DHCPv6
+	if (local_family == AF_INET6) {
+		ifaces->fp6 = fopen("/proc/net/if_inet6", "r");
+		if (ifaces->fp6 == NULL) {
+			log_error("Error opening '/proc/net/if_inet6' to "
+				  "list IPv6 interfaces; %m");
+			close(ifaces->sock);
+			ifaces->sock = -1;
+			fclose(ifaces->fp);
+			ifaces->fp = NULL;
+			return 0;
+		}
+	}
+#endif
+
+	return 1;
+}
+
+/*
+ * Read our IPv4 interfaces from /proc/net/dev.
+ *
+ * The file looks something like this:
+ *
+ * Inter-|   Receive ...
+ *  face |bytes    packets errs drop fifo frame ...
+ *     lo: 1580562    4207    0    0    0     0 ...
+ *   eth0:       0       0    0    0    0     0 ...
+ *   eth1:1801552440   37895    0   14    0     ...
+ *
+ * We only care about the interface name, which is at the start of 
+ * each line.
+ *
+ * We use an ioctl() to get the address and flags for each interface.
+ */
+static int
+next_iface4(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
+	char buf[IF_LINE_LENGTH];
+	int len;
+	char *p;
+	char *name;
+	struct ifreq tmp;
+
+	/*
+	 * Loop exits when we find an interface that has an address, or 
+	 * when we run out of interfaces.
+	 */
+	for (;;) {
+		do {
+			/*
+	 		 *  Read the next line in the file.
+	 		 */
+			if (fgets(buf, sizeof(buf), ifaces->fp) == NULL) {
+				if (ferror(ifaces->fp)) {
+					*err = 1;
+					log_error("Error reading interface "
+					  	"information");
+				} else {
+					*err = 0;
+				}
+				return 0;
+			}
+
+			/*
+	 		 * Make sure the line is a nice, 
+			 * newline-terminated line.
+	 		 */
+			len = strlen(buf);
+			if ((len <= 0) || (buf[len-1] != '\n')) { 
+				log_error("Bad line reading interface "
+					  "information");
+				*err = 1;
+				return 0;
+			}
+
+			/*
+	 		 * Figure out our name.
+	 		 */
+			p = strrchr(buf, ':');
+			if (p == NULL) {
+				log_error("Bad line reading interface "
+					  "information (no colon)");
+				*err = 1;
+				return 0;
+			}
+			*p = '\0';
+			name = buf;
+			while (isspace(*name)) {
+				name++;
+			}
+
+			/* 
+		 	 * Copy our name into our interface structure.
+		 	 */
+			len = p - name;
+			if (len >= sizeof(info->name)) {
+				*err = 1;
+				log_error("Interface name '%s' too long", name);
+				return 0;
+			}
+			strncpy(info->name, name, sizeof(info->name) - 1);
+
+#ifdef ALIAS_NAMED_PERMUTED
+			/* interface aliases look like "eth0:1" or "wlan1:3" */
+			s = strchr(info->name, ':');
+			if (s != NULL) {
+				*s = '\0';
+			}
+#endif
+
+#ifdef SKIP_DUMMY_INTERFACES
+		} while (strncmp(info->name, "dummy", 5) == 0);
+#else
+		} while (0);
+#endif
+
+		memset(&tmp, 0, sizeof(tmp));
+		strncpy(tmp.ifr_name, name, sizeof(tmp.ifr_name) - 1);
+		if (ioctl(ifaces->sock, SIOCGIFADDR, &tmp) < 0) {
+			if (errno == EADDRNOTAVAIL) {
+				continue;
+			}
+			log_error("Error getting interface address "
+				  "for '%s'; %m", name);
+			*err = 1;
+			return 0;
+		}
+		memcpy(&info->addr, &tmp.ifr_addr, sizeof(tmp.ifr_addr));
+
+		memset(&tmp, 0, sizeof(tmp));
+		strncpy(tmp.ifr_name, name, sizeof(tmp.ifr_name) - 1);
+		if (ioctl(ifaces->sock, SIOCGIFFLAGS, &tmp) < 0) {
+			log_error("Error getting interface flags for '%s'; %m", 
+			  	name);
+			*err = 1;
+			return 0;
+		}
+		info->flags = tmp.ifr_flags;
+
+		*err = 0;
+		return 1;
+	}
+}
+
+#ifdef DHCPv6
+/*
+ * Read our IPv6 interfaces from /proc/net/if_inet6.
+ *
+ * The file looks something like this:
+ *
+ * fe80000000000000025056fffec00008 05 40 20 80   vmnet8
+ * 00000000000000000000000000000001 01 80 10 80       lo
+ * fe80000000000000025056fffec00001 06 40 20 80   vmnet1
+ * 200108881936000202166ffffe497d9b 03 40 00 00     eth1
+ * fe8000000000000002166ffffe497d9b 03 40 20 80     eth1
+ *
+ * We get IPv6 address from the start, the interface name from the end, 
+ * and ioctl() to get flags.
+ */
+static int
+next_iface6(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
+	char buf[IF_LINE_LENGTH];
+	int len;
+	char *p;
+	char *name;
+	int i;
+	struct sockaddr_in6 addr;
+	struct ifreq tmp;
+
+	do {
+		/*
+		 *  Read the next line in the file.
+		 */
+		if (fgets(buf, sizeof(buf), ifaces->fp6) == NULL) {
+			if (ferror(ifaces->fp6)) {
+				*err = 1;
+				log_error("Error reading IPv6 "
+					  "interface information");
+			} else {
+				*err = 0;
+			}
+			return 0;
+		}
+
+		/*
+		 * Make sure the line is a nice, newline-terminated line.
+		 */
+		len = strlen(buf);
+		if ((len <= 0) || (buf[len-1] != '\n')) { 
+			log_error("Bad line reading IPv6 "
+				  "interface information");
+			*err = 1;
+			return 0;
+		}
+
+		/*
+ 		 * Figure out our name.
+ 		 */
+		buf[--len] = '\0';
+		p = strrchr(buf, ' ');
+		if (p == NULL) {
+			log_error("Bad line reading IPv6 interface "
+			          "information (no space)");
+			*err = 1;
+			return 0;
+		}
+		name = p+1;
+
+		/* 
+ 		 * Copy our name into our interface structure.
+ 		 */
+		len = strlen(name);
+		if (len >= sizeof(info->name)) {
+			*err = 1;
+			log_error("IPv6 interface name '%s' too long", name);
+			return 0;
+		}
+		strcpy(info->name, name);
+
+#ifdef SKIP_DUMMY_INTERFACES
+	} while (strncmp(info->name, "dummy", 5) == 0);
+#else
+	} while (0);
+#endif
+
+	/*
+	 * Double-check we start with the IPv6 address.
+	 */
+	for (i=0; i<32; i++) {
+		if (!isxdigit(buf[i]) || isupper(buf[i])) {
+			*err = 1;
+			log_error("Bad line reading IPv6 interface address "
+				  "for '%s'", name);
+			return 0;
+		}
+	}
+
+	/* 
+	 * Load our socket structure.
+	 */
+	memset(&addr, 0, sizeof(addr));
+	addr.sin6_family = AF_INET6;
+	for (i=0; i<16; i++) {
+		unsigned char byte;
+                static const char hex[] = "0123456789abcdef";
+                byte = ((index(hex, buf[i * 2]) - hex) << 4) |
+			(index(hex, buf[i * 2 + 1]) - hex);
+		addr.sin6_addr.s6_addr[i] = byte;
+	}
+	memcpy(&info->addr, &addr, sizeof(addr));
+
+	/*
+	 * Get our flags.
+	 */
+	memset(&tmp, 0, sizeof(tmp));
+	strcpy(tmp.ifr_name, name);
+	if (ioctl(ifaces->sock, SIOCGIFFLAGS, &tmp) < 0) {
+		log_error("Error getting interface flags for '%s'; %m", name);
+		*err = 1;
+		return 0;
+	}
+	info->flags = tmp.ifr_flags;
+
+	*err = 0;
+	return 1;
+}
+#endif /* DHCPv6 */
+
+/*
+ * Retrieve the next interface.
+ *
+ * Returns information in the info structure. 
+ * Sets err to 1 if there is an error, otherwise 0.
+ */
+int
+next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
+	if (next_iface4(info, err, ifaces)) {
+		return 1;
+	}
+#ifdef DHCPv6
+	if (!(*err)) {
+		if (local_family == AF_INET6)
+			return next_iface6(info, err, ifaces);
+	}
+#endif
+	return 0;
+}
+
+/*
+ * End scan of interfaces.
+ */
+void
+end_iface_scan(struct iface_conf_list *ifaces) {
+	fclose(ifaces->fp);
+	ifaces->fp = NULL;
+	close(ifaces->sock);
+	ifaces->sock = -1;
+#ifdef DHCPv6
+	if (local_family == AF_INET6) {
+		fclose(ifaces->fp6);
+		ifaces->fp6 = NULL;
+	}
+#endif
+}
 #else
 
 /* 
- * BSD/Linux support
+ * BSD support
  * -----------
  *
- * FreeBSD, NetBSD, OpenBSD, OS X/macOS and Linux all have the getifaddrs() 
+ * FreeBSD, NetBSD, OpenBSD, and OS X all have the getifaddrs() 
  * function.
  *
  * The getifaddrs() man page describes the use.
@@ -426,8 +805,6 @@ begin_iface_scan(struct iface_conf_list *ifaces) {
  */
 int
 next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
-	size_t sa_len = 0;
-
 	if (ifaces->next == NULL) {
 		*err = 0;
 		return 0;
@@ -438,25 +815,10 @@ next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 		*err = 1;
 		return 0;
 	}
-	memset(info, 0, sizeof(struct iface_info));
-	strncpy(info->name, ifaces->next->ifa_name, sizeof(info->name) - 1);
-	memset(&info->addr, 0 , sizeof(info->addr));
-	/*
-	 * getifaddrs() can on Linux with some interfaces like PPP or TEQL
-	 * result in a record with no address (ifa_addr).
-	 */
-	if (ifaces->next->ifa_addr != NULL) {
-/* Linux lacks the sa_len member in struct sockaddr. */
-#if defined(__linux)
-		if (ifaces->next->ifa_addr->sa_family == AF_INET)
-			sa_len = sizeof(struct sockaddr_in);
-		else if (ifaces->next->ifa_addr->sa_family == AF_INET6)
-			sa_len = sizeof(struct sockaddr_in6);
-#else
-		sa_len = sizeof(struct sockaddr_in6); //ifaces->next->ifa_addr->sa_len;
-#endif
-		memcpy(&info->addr, ifaces->next->ifa_addr, sa_len);
-	}
+	strcpy(info->name, ifaces->next->ifa_name);
+	memcpy(&info->addr, ifaces->next->ifa_addr, 
+		sizeof(struct sockaddr_in6) );
+//	       ifaces->next->ifa_addr->sa_len);
 	info->flags = ifaces->next->ifa_flags;
 	ifaces->next = ifaces->next->ifa_next;
 	*err = 0;
@@ -587,14 +949,8 @@ discover_interfaces(int state) {
 		ir = 0;
 	else if (state == DISCOVER_UNCONFIGURED)
 		ir = INTERFACE_REQUESTED | INTERFACE_AUTOMATIC;
-	else {
+	else
 		ir = INTERFACE_REQUESTED;
-		if (state == DISCOVER_RELAY && local_family == AF_INET) {
-			/* We're a v4 relay without specifically requested
-			 * interfaces, so mark them all as bidirectional. */
-			ir |= INTERFACE_STREAMS;
-		}
-	}
 
 	/* Cycle through the list of interfaces looking for IP addresses. */
 	while (next_iface(&info, &err, &ifaces)) {
@@ -629,7 +985,7 @@ discover_interfaces(int state) {
 				log_fatal("Error allocating interface %s: %s",
 					  info.name, isc_result_totext(status));
 			}
-			strncpy(tmp->name, info.name, sizeof(tmp->name) - 1);
+			strcpy(tmp->name, info.name);
 			interface_snorf(tmp, ir);
 			interface_dereference(&tmp, MDL);
 			tmp = interfaces; /* XXX */
@@ -647,7 +1003,8 @@ discover_interfaces(int state) {
 			/* We don't want the loopback interface. */
 			if (a->sin_addr.s_addr == htonl(INADDR_LOOPBACK) &&
 			    ((tmp->flags & INTERFACE_AUTOMATIC) &&
-			     state == DISCOVER_SERVER))
+			     ((state == DISCOVER_SERVER) ||
+			      (state == DISCOVER_SERVER46))))
 				continue;
 
 			/* If the only address we have is 0.0.0.0, we
@@ -674,7 +1031,8 @@ discover_interfaces(int state) {
 			/* We don't want the loopback interface. */
 			if (IN6_IS_ADDR_LOOPBACK(&a->sin6_addr) && 
 			    ((tmp->flags & INTERFACE_AUTOMATIC) &&
-			     state == DISCOVER_SERVER))
+			     ((state == DISCOVER_SERVER) ||
+			      (state == DISCOVER_SERVER46))))
 			    continue;
 
 			/* If the only address we have is 0.0.0.0, we
@@ -871,31 +1229,48 @@ discover_interfaces(int state) {
 		tmp -> index = -1;
 
 		/* Register the interface... */
-		if (local_family == AF_INET) {
-			if_register_receive(tmp);
-			if_register_send(tmp);
+		switch (local_family) {
+		case AF_INET:
+			if (!dhcpv4_over_dhcpv6) {
+				if_register_receive(tmp);
+				if_register_send(tmp);
+			} else {
+				/* get_hw_addr() was called by register. */
+				get_hw_addr(tmp->name, &tmp->hw_address);
+			}
+			break;
 #ifdef DHCPv6
-		} else {
+		case AF_INET6:
 			if ((state == DISCOVER_SERVER) ||
 			    (state == DISCOVER_RELAY)) {
 				if_register6(tmp, 1);
+			} else if (state == DISCOVER_SERVER46) {
+				/* get_hw_addr() was called by if_register*6
+				   so now we have to call it explicitly
+				   to not leave the hardware address unknown
+				   (some code expects it cannot be. */
+				get_hw_addr(tmp->name, &tmp->hw_address);
 			} else {
 				if_register_linklocal6(tmp);
 			}
+			break;
 #endif /* DHCPv6 */
 		}
 
 		interface_stash (tmp);
 		wifcount++;
 #if defined (F_SETFD)
-		if (fcntl (tmp -> rfdesc, F_SETFD, 1) < 0)
+		/* if_register*() are no longer always called so
+		   descriptors  must be checked. */
+		if ((tmp -> rfdesc >= 0) &&
+		    (fcntl (tmp -> rfdesc, F_SETFD, 1) < 0))
 			log_error ("Can't set close-on-exec on %s: %m",
 				   tmp -> name);
-		if (tmp -> rfdesc != tmp -> wfdesc) {
-			if (fcntl (tmp -> wfdesc, F_SETFD, 1) < 0)
-				log_error ("Can't set close-on-exec on %s: %m",
-					   tmp -> name);
-		}
+		if ((tmp -> wfdesc != tmp -> rfdesc) &&
+		    (tmp -> wfdesc >= 0) &&
+		    (fcntl (tmp -> wfdesc, F_SETFD, 1) < 0))
+			log_error ("Can't set close-on-exec on %s: %m",
+				   tmp -> name);
 #endif
 	      next:
 		interface_dereference (&tmp, MDL);
@@ -903,26 +1278,34 @@ discover_interfaces(int state) {
 			interface_reference (&tmp, next, MDL);
 	}
 
-	/* Now register all the remaining interfaces as protocols. */
+	/*
+	 * Now register all the remaining interfaces as protocols.
+	 * We register with omapi to allow for control of the interface,
+	 * we've already registered the fd or socket with the socket
+	 * manager as part of if_register_receive().
+	 */
 	for (tmp = interfaces; tmp; tmp = tmp -> next) {
 		/* not if it's been registered before */
 		if (tmp -> flags & INTERFACE_RUNNING)
 			continue;
 		if (tmp -> rfdesc == -1)
 			continue;
+		switch (local_family) {
 #ifdef DHCPv6 
-		if (local_family == AF_INET6) {
+		case AF_INET6:
 			status = omapi_register_io_object((omapi_object_t *)tmp,
 							  if_readsocket, 
 							  0, got_one_v6, 0, 0);
-		} else {
-#else
-		{
+			break;
 #endif /* DHCPv6 */
+		case AF_INET:
+		default:
 			status = omapi_register_io_object((omapi_object_t *)tmp,
 							  if_readsocket, 
 							  0, got_one, 0, 0);
+			break;
 		}
+
 		if (status != ISC_R_SUCCESS)
 			log_fatal ("Can't register I/O handle for %s: %s",
 				   tmp -> name, isc_result_totext (status));
@@ -938,14 +1321,15 @@ discover_interfaces(int state) {
 		    (local_family == AF_INET6))
 			break;
 #endif
-	}
+	} /* for (tmp = interfaces; ... */
 
 	if (state == DISCOVER_SERVER && wifcount == 0) {
 		log_info ("%s", "");
 		log_fatal ("Not configured to listen on any interfaces!");
 	}
 
-	if ((local_family == AF_INET) && !setup_fallback) {
+	if ((local_family == AF_INET) &&
+	    !setup_fallback && !dhcpv4_over_dhcpv6) {
 		setup_fallback = 1;
 		maybe_setup_fallback();
 	}
@@ -1023,7 +1407,7 @@ isc_result_t got_one (h)
 	struct interface_info *ip;
 
 	if (h -> type != dhcp_type_interface)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	ip = (struct interface_info *)h;
 
       again:
@@ -1094,7 +1478,7 @@ got_one_v6(omapi_object_t *h) {
 	unsigned int if_idx = 0;
 
 	if (h->type != dhcp_type_interface) {
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	}
 	ip = (struct interface_info *)h;
 
@@ -1148,7 +1532,7 @@ isc_result_t dhcp_interface_set_value  (omapi_object_t *h,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_interface)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	interface = (struct interface_info *)h;
 
 	if (!omapi_ds_strcmp (name, "name")) {
@@ -1160,7 +1544,7 @@ isc_result_t dhcp_interface_set_value  (omapi_object_t *h,
 				value -> u.buffer.len);
 			interface -> name [value -> u.buffer.len] = 0;
 		} else
-			return ISC_R_INVALIDARG;
+			return DHCP_R_INVALIDARG;
 		return ISC_R_SUCCESS;
 	}
 
@@ -1168,7 +1552,7 @@ isc_result_t dhcp_interface_set_value  (omapi_object_t *h,
 	if (h -> inner && h -> inner -> type -> set_value) {
 		status = ((*(h -> inner -> type -> set_value))
 			  (h -> inner, id, name, value));
-		if (status == ISC_R_SUCCESS || status == ISC_R_UNCHANGED)
+		if (status == ISC_R_SUCCESS || status == DHCP_R_UNCHANGED)
 			return status;
 	}
 			  
@@ -1190,7 +1574,7 @@ isc_result_t dhcp_interface_destroy (omapi_object_t *h,
 	struct interface_info *interface;
 
 	if (h -> type != dhcp_type_interface)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	interface = (struct interface_info *)h;
 
 	if (interface -> ifp) {
@@ -1220,7 +1604,7 @@ isc_result_t dhcp_interface_signal_handler (omapi_object_t *h,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_interface)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	interface = (struct interface_info *)h;
 
 	/* If it's an update signal, see if the interface is dead right
@@ -1257,7 +1641,7 @@ isc_result_t dhcp_interface_stuff_values (omapi_object_t *c,
 	isc_result_t status;
 
 	if (h -> type != dhcp_type_interface)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	interface = (struct interface_info *)h;
 
 	/* Write out all the values. */
@@ -1292,7 +1676,7 @@ isc_result_t dhcp_interface_lookup (omapi_object_t **ip,
 	struct interface_info *interface;
 
 	if (!ref)
-		return ISC_R_NOKEYS;
+		return DHCP_R_NOKEYS;
 
 	/* First see if we were sent a handle. */
 	status = omapi_get_value_str (ref, id, "handle", &tv);
@@ -1306,7 +1690,7 @@ isc_result_t dhcp_interface_lookup (omapi_object_t **ip,
 		/* Don't return the object if the type is wrong. */
 		if ((*ip) -> type != dhcp_type_interface) {
 			omapi_object_dereference (ip, MDL);
-			return ISC_R_INVALIDARG;
+			return DHCP_R_INVALIDARG;
 		}
 	}
 
@@ -1348,7 +1732,7 @@ isc_result_t dhcp_interface_lookup (omapi_object_t **ip,
 		omapi_value_dereference (&tv, MDL);
 		if (*ip && *ip != (omapi_object_t *)interface) {
 			omapi_object_dereference (ip, MDL);
-			return ISC_R_KEYCONFLICT;
+			return DHCP_R_KEYCONFLICT;
 		} else if (!interface) {
 			if (*ip)
 				omapi_object_dereference (ip, MDL);
@@ -1362,7 +1746,7 @@ isc_result_t dhcp_interface_lookup (omapi_object_t **ip,
 	/* If we get to here without finding an interface, no valid key was
 	   specified. */
 	if (!*ip)
-		return ISC_R_NOKEYS;
+		return DHCP_R_NOKEYS;
 	return ISC_R_SUCCESS;
 }
 
@@ -1429,13 +1813,17 @@ isc_result_t dhcp_interface_remove (omapi_object_t *lp,
 	/* remove the io object */
 	omapi_unregister_io_object ((omapi_object_t *)interface);
 
-	if (local_family == AF_INET) {
+	switch(local_family) {
+#ifdef DHCPv6
+	case AF_INET6:
+		if_deregister6(interface);
+		break;
+#endif /* DHCPv6 */
+	case AF_INET:
+	default:
 		if_deregister_send(interface);
 		if_deregister_receive(interface);
-#ifdef DHCPv6
-	} else {
-		if_deregister6(interface);
-#endif /* DHCPv6 */
+		break;
 	}
 
 	return ISC_R_SUCCESS;
@@ -1458,11 +1846,8 @@ void interface_stash (struct interface_info *tptr)
 		delta = tptr -> index - interface_max + 10;
 		vec = dmalloc ((interface_max + delta) *
 			       sizeof (struct interface_info *), MDL);
-		if (!vec) {
-			log_error ("interface_stash: allocation failed ");
+		if (!vec)
 			return;
-		}
-
 		memset (&vec [interface_max], 0,
 			(sizeof (struct interface_info *)) * delta);
 		interface_max += delta;
@@ -1473,9 +1858,7 @@ void interface_stash (struct interface_info *tptr)
 		    dfree (interface_vector, MDL);
 		}
 		interface_vector = vec;
-
 	}
-
 	interface_reference (&interface_vector [tptr -> index], tptr, MDL);
 	if (tptr -> index >= interface_count)
 		interface_count = tptr -> index + 1;

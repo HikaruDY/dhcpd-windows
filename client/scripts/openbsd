@@ -259,41 +259,6 @@ if [ ${reason} = PREINIT6 ] ; then
 
   # XXX: Remove any stale addresses from aborted clients.
 
-  # We need to give the kernel some time to active interface
-  interface_up_wait_time=5
-  for i in $(seq 0 ${interface_up_wait_time})
-  do
-      ifconfig ${interface} | grep inactive >/dev/null 2>&1
-      if [ $? -ne 0 ]; then
-          break;
-      fi
-      sleep 1
-  done
-
-  # Wait for duplicate address detection for this interface if the
-  # --dad-wait-time parameter has been specified and is greater than
-  # zero.
-  if [ ${dad_wait_time} -gt 0 ]; then
-      # Check if any IPv6 address on this interface is marked as
-      # tentative.
-      ifconfig ${interface} | grep inet6 | grep tentative \
-          >/dev/null 2>&1
-      if [ $? -eq 0 ]; then
-          # Wait for duplicate address detection to complete or for
-          # the timeout specified as --dad-wait-time.
-          for i in $(seq 0 $dad_wait_time)
-          do
-              # We're going to poll for the tentative flag every second.
-              sleep 1
-              ifconfig ${interface} | grep inet6 | grep tentative \
-                  >/dev/null 2>&1
-              if [ $? -ne 0 ]; then
-                  break;
-              fi
-          done
-      fi
-  fi
-
   exit_with_hooks 0
 fi
 
@@ -308,7 +273,7 @@ if [ ${reason} = BOUND6 ] ; then
     exit_with_hooks 2;
   fi
 
-  ifconfig ${interface} inet6 alias ${new_ip6_address}/${new_ip6_prefixlen}
+  ifconfig ${interface} inet6 add ${new_ip6_address}/${new_ip6_prefixlen}
 
   # Check for nameserver options.
   make_resolv_conf
@@ -345,7 +310,7 @@ if [ ${reason} = EXPIRE6 -o ${reason} = RELEASE6 -o ${reason} = STOP6 ] ; then
     exit_with_hooks 2;
   fi
 
-  ifconfig ${interface} inet6 -alias ${old_ip6_address}/${old_ip6_prefixlen}
+  ifconfig ${interface} inet6 delete ${old_ip6_address}/${old_ip6_prefixlen}
 
   exit_with_hooks 0
 fi

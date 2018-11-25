@@ -1,7 +1,6 @@
 .\"	dhcpd.8
 .\"
-.\" Copyright (c) 2009-2016 by Internet Systems Consortium, Inc. ("ISC")
-.\" Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 1996-2003 by Internet Software Consortium
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
@@ -28,7 +27,7 @@
 .\" Support and other services are available for ISC products - see
 .\" https://www.isc.org for more information or to learn more about ISC.
 .\"
-.\" $Id: dhcpd.8,v 1.29.32.4.6.1 2011/04/15 22:26:21 sar Exp $
+.\" $Id: dhcpd.8,v 1.35 2011/05/20 13:48:33 tomasz Exp $
 .\"
 .TH dhcpd 8
 .SH NAME
@@ -57,6 +56,10 @@ dhcpd - Dynamic Host Configuration Protocol Server
 .B -4
 | 
 .B -6
+]
+[
+.B -4o6
+.I port
 ]
 [
 .B -s
@@ -202,14 +205,22 @@ possible, and listen for DHCP broadcasts on each interface.
 .SH COMMAND LINE OPTIONS
 .TP
 .BI \-4
-Run as a DHCP server.  This cannot be combined with \fB\-6\fR.
+Run as a DHCP server. This is the default and cannot be combined with
+\fB\-6\fR.
 .TP
 .BI \-6
-Run as a DHCPv6 server.  This is the default and cannot be combined
-with \fB\-4\fR.
+Run as a DHCPv6 server. This cannot be combined with \fB\-4\fR.
+.TP
+.BI \-4o6 \ port
+Participate in the DHCPv4 over DHCPv6 protocol specified by RFC 7341.
+This associates a DHCPv4 and a DHCPv6 server to allow the v4 server to
+receive v4 requests that were encapsualted in a v6 packet.  Communication
+between the two servers is done on a pair of UDP sockets bound
+to ::1 \fIport\fR and \fIport + 1\fR. Both servers must
+be launched using the same \fIport\fR argument.
 .TP
 .BI \-p \ port
-The udp port number on which 
+The UDP port number on which 
 .B dhcpd
 should listen.  If unspecified
 .B dhcpd
@@ -355,6 +366,11 @@ If you have included an omapi-port statement in your configuration
 file then the server will open a TCP socket on that port to
 listen for OMPAI connections.  When something connects another
 port will be used for the established connection.
+
+When DDNS is enabled at compile time (see includes/site.h)
+the server will open both a v4 and a v6 UDP socket on
+random ports.  These ports are opened even if DDNS is disabled
+in the configuration file.
 .PP
 .SH CONFIGURATION
 The syntax of the dhcpd.conf(5) file is discussed separately.  This
@@ -475,7 +491,7 @@ use a different name server might be declared as follows:
 	  fixed-address 239.252.197.9;
 	  filename "/tftpboot/haagen.boot";
 	  option domain-name-servers 192.5.5.1;
-	  option domain-name "example.com";
+	  option domain-name "vix.com";
 	}
 .fi
 .PP

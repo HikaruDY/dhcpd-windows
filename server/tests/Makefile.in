@@ -87,7 +87,7 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-@HAVE_ATF_TRUE@am__append_1 = dhcpd_unittests legacy_unittests hash_unittests load_bal_unittests
+@HAVE_ATF_TRUE@am__append_1 = dhcpd_unittests legacy_unittests hash_unittests load_bal_unittests leaseq_unittests
 check_PROGRAMS = $(am__EXEEXT_2)
 subdir = server/tests
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -102,17 +102,20 @@ CONFIG_CLEAN_VPATH_FILES =
 @HAVE_ATF_TRUE@am__EXEEXT_1 = dhcpd_unittests$(EXEEXT) \
 @HAVE_ATF_TRUE@	legacy_unittests$(EXEEXT) \
 @HAVE_ATF_TRUE@	hash_unittests$(EXEEXT) \
-@HAVE_ATF_TRUE@	load_bal_unittests$(EXEEXT)
+@HAVE_ATF_TRUE@	load_bal_unittests$(EXEEXT) \
+@HAVE_ATF_TRUE@	leaseq_unittests$(EXEEXT)
 am__EXEEXT_2 = $(am__EXEEXT_1)
 am__dhcpd_unittests_SOURCES_DIST = ../dhcp.c ../bootp.c ../confpars.c \
 	../db.c ../class.c ../failover.c ../omapi.c ../mdb.c \
 	../stables.c ../salloc.c ../ddns.c ../dhcpleasequery.c \
-	../dhcpv6.c ../mdb6.c ../dhcpd.c simple_unittest.c
+	../dhcpv6.c ../mdb6.c ../ldap.c ../ldap_casa.c ../dhcpd.c \
+	../leasechain.c simple_unittest.c
 am__objects_1 = dhcp.$(OBJEXT) bootp.$(OBJEXT) confpars.$(OBJEXT) \
 	db.$(OBJEXT) class.$(OBJEXT) failover.$(OBJEXT) \
 	omapi.$(OBJEXT) mdb.$(OBJEXT) stables.$(OBJEXT) \
 	salloc.$(OBJEXT) ddns.$(OBJEXT) dhcpleasequery.$(OBJEXT) \
-	dhcpv6.$(OBJEXT) mdb6.$(OBJEXT) dhcpd.$(OBJEXT)
+	dhcpv6.$(OBJEXT) mdb6.$(OBJEXT) ldap.$(OBJEXT) \
+	ldap_casa.$(OBJEXT) dhcpd.$(OBJEXT) leasechain.$(OBJEXT)
 @HAVE_ATF_TRUE@am_dhcpd_unittests_OBJECTS = $(am__objects_1) \
 @HAVE_ATF_TRUE@	simple_unittest.$(OBJEXT)
 dhcpd_unittests_OBJECTS = $(am_dhcpd_unittests_OBJECTS)
@@ -124,16 +127,28 @@ dhcpd_unittests_LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 am__hash_unittests_SOURCES_DIST = ../dhcp.c ../bootp.c ../confpars.c \
 	../db.c ../class.c ../failover.c ../omapi.c ../mdb.c \
 	../stables.c ../salloc.c ../ddns.c ../dhcpleasequery.c \
-	../dhcpv6.c ../mdb6.c ../dhcpd.c hash_unittest.c
+	../dhcpv6.c ../mdb6.c ../ldap.c ../ldap_casa.c ../dhcpd.c \
+	../leasechain.c hash_unittest.c
 @HAVE_ATF_TRUE@am_hash_unittests_OBJECTS = $(am__objects_1) \
 @HAVE_ATF_TRUE@	hash_unittest.$(OBJEXT)
 hash_unittests_OBJECTS = $(am_hash_unittests_OBJECTS)
 @HAVE_ATF_TRUE@hash_unittests_DEPENDENCIES = $(DHCPLIBS) \
 @HAVE_ATF_TRUE@	$(am__DEPENDENCIES_1)
+am__leaseq_unittests_SOURCES_DIST = ../dhcp.c ../bootp.c ../confpars.c \
+	../db.c ../class.c ../failover.c ../omapi.c ../mdb.c \
+	../stables.c ../salloc.c ../ddns.c ../dhcpleasequery.c \
+	../dhcpv6.c ../mdb6.c ../ldap.c ../ldap_casa.c ../dhcpd.c \
+	../leasechain.c leaseq_unittest.c
+@HAVE_ATF_TRUE@am_leaseq_unittests_OBJECTS = $(am__objects_1) \
+@HAVE_ATF_TRUE@	leaseq_unittest.$(OBJEXT)
+leaseq_unittests_OBJECTS = $(am_leaseq_unittests_OBJECTS)
+@HAVE_ATF_TRUE@leaseq_unittests_DEPENDENCIES = $(DHCPLIBS) \
+@HAVE_ATF_TRUE@	$(am__DEPENDENCIES_1)
 am__legacy_unittests_SOURCES_DIST = ../dhcp.c ../bootp.c ../confpars.c \
 	../db.c ../class.c ../failover.c ../omapi.c ../mdb.c \
 	../stables.c ../salloc.c ../ddns.c ../dhcpleasequery.c \
-	../dhcpv6.c ../mdb6.c ../dhcpd.c mdb6_unittest.c
+	../dhcpv6.c ../mdb6.c ../ldap.c ../ldap_casa.c ../dhcpd.c \
+	../leasechain.c mdb6_unittest.c
 @HAVE_ATF_TRUE@am_legacy_unittests_OBJECTS = $(am__objects_1) \
 @HAVE_ATF_TRUE@	mdb6_unittest.$(OBJEXT)
 legacy_unittests_OBJECTS = $(am_legacy_unittests_OBJECTS)
@@ -142,8 +157,8 @@ legacy_unittests_OBJECTS = $(am_legacy_unittests_OBJECTS)
 am__load_bal_unittests_SOURCES_DIST = ../dhcp.c ../bootp.c \
 	../confpars.c ../db.c ../class.c ../failover.c ../omapi.c \
 	../mdb.c ../stables.c ../salloc.c ../ddns.c \
-	../dhcpleasequery.c ../dhcpv6.c ../mdb6.c ../dhcpd.c \
-	load_bal_unittest.c
+	../dhcpleasequery.c ../dhcpv6.c ../mdb6.c ../ldap.c \
+	../ldap_casa.c ../dhcpd.c ../leasechain.c load_bal_unittest.c
 @HAVE_ATF_TRUE@am_load_bal_unittests_OBJECTS = $(am__objects_1) \
 @HAVE_ATF_TRUE@	load_bal_unittest.$(OBJEXT)
 load_bal_unittests_OBJECTS = $(am_load_bal_unittests_OBJECTS)
@@ -182,9 +197,11 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(dhcpd_unittests_SOURCES) $(hash_unittests_SOURCES) \
-	$(legacy_unittests_SOURCES) $(load_bal_unittests_SOURCES)
+	$(leaseq_unittests_SOURCES) $(legacy_unittests_SOURCES) \
+	$(load_bal_unittests_SOURCES)
 DIST_SOURCES = $(am__dhcpd_unittests_SOURCES_DIST) \
 	$(am__hash_unittests_SOURCES_DIST) \
+	$(am__leaseq_unittests_SOURCES_DIST) \
 	$(am__legacy_unittests_SOURCES_DIST) \
 	$(am__load_bal_unittests_SOURCES_DIST)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
@@ -258,6 +275,7 @@ am__relativize = \
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
+AR = @AR@
 ATF_BIN = @ATF_BIN@
 ATF_CFLAGS = @ATF_CFLAGS@
 ATF_LDFLAGS = @ATF_LDFLAGS@
@@ -265,6 +283,9 @@ AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+BINDCONFIG = @BINDCONFIG@
+BINDDIR = @BINDDIR@
+BINDSRCDIR = @BINDSRCDIR@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -273,6 +294,7 @@ CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DISTCHECK_ATF_CONFIGURE_FLAG = @DISTCHECK_ATF_CONFIGURE_FLAG@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -284,6 +306,8 @@ INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+LDAP_CFLAGS = @LDAP_CFLAGS@
+LDAP_LIBS = @LDAP_LIBS@
 LDFLAGS = @LDFLAGS@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
@@ -359,18 +383,19 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 SUBDIRS = .
+BINDLIBDIR = @BINDDIR@/lib
 AM_CPPFLAGS = $(ATF_CFLAGS) -DUNIT_TEST -I$(top_srcdir)/includes \
-	-I$(top_srcdir)/bind/include -I$(top_srcdir) \
-	-DLOCALSTATEDIR='"."'
+	-I@BINDDIR@/include -I$(top_srcdir) -DLOCALSTATEDIR='"."'
 EXTRA_DIST = Atffile
 DHCPSRC = ../dhcp.c ../bootp.c ../confpars.c ../db.c ../class.c      \
           ../failover.c ../omapi.c ../mdb.c ../stables.c ../salloc.c \
           ../ddns.c ../dhcpleasequery.c ../dhcpv6.c ../mdb6.c        \
-          ../dhcpd.c
+          ../ldap.c ../ldap_casa.c ../dhcpd.c ../leasechain.c
 
-DHCPLIBS = $(top_builddir)/common/libdhcp.a $(top_builddir)/omapip/libomapi.a    \
-          $(top_builddir)/dhcpctl/libdhcpctl.a $(top_builddir)/dst/libdst.a \
-          $(top_builddir)/minires/libres.a
+DHCPLIBS = $(top_builddir)/common/libdhcp.a $(top_builddir)/omapip/libomapi.a \
+          $(top_builddir)/dhcpctl/libdhcpctl.a $(BINDLIBDIR)/libirs.a \
+	  $(BINDLIBDIR)/libdns.a $(BINDLIBDIR)/libisccfg.a \
+	  $(BINDLIBDIR)/libisc.a
 
 ATF_TESTS = $(am__append_1)
 @HAVE_ATF_TRUE@dhcpd_unittests_SOURCES = $(DHCPSRC) simple_unittest.c
@@ -384,6 +409,8 @@ ATF_TESTS = $(am__append_1)
 @HAVE_ATF_TRUE@legacy_unittests_LDADD = $(DHCPLIBS) $(ATF_LDFLAGS)
 @HAVE_ATF_TRUE@load_bal_unittests_SOURCES = $(DHCPSRC) load_bal_unittest.c
 @HAVE_ATF_TRUE@load_bal_unittests_LDADD = $(DHCPLIBS) $(ATF_LDFLAGS)
+@HAVE_ATF_TRUE@leaseq_unittests_SOURCES = $(DHCPSRC) leaseq_unittest.c
+@HAVE_ATF_TRUE@leaseq_unittests_LDADD = $(DHCPLIBS) $(ATF_LDFLAGS)
 all: all-recursive
 
 .SUFFIXES:
@@ -429,6 +456,10 @@ hash_unittests$(EXEEXT): $(hash_unittests_OBJECTS) $(hash_unittests_DEPENDENCIES
 	@rm -f hash_unittests$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(hash_unittests_OBJECTS) $(hash_unittests_LDADD) $(LIBS)
 
+leaseq_unittests$(EXEEXT): $(leaseq_unittests_OBJECTS) $(leaseq_unittests_DEPENDENCIES) $(EXTRA_leaseq_unittests_DEPENDENCIES) 
+	@rm -f leaseq_unittests$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(leaseq_unittests_OBJECTS) $(leaseq_unittests_LDADD) $(LIBS)
+
 legacy_unittests$(EXEEXT): $(legacy_unittests_OBJECTS) $(legacy_unittests_DEPENDENCIES) $(EXTRA_legacy_unittests_DEPENDENCIES) 
 	@rm -f legacy_unittests$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(legacy_unittests_OBJECTS) $(legacy_unittests_LDADD) $(LIBS)
@@ -454,6 +485,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dhcpv6.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/failover.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/hash_unittest.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ldap.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ldap_casa.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/leasechain.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/leaseq_unittest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/load_bal_unittest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mdb.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mdb6.Po@am__quote@
@@ -673,6 +708,34 @@ mdb6.obj: ../mdb6.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mdb6.obj `if test -f '../mdb6.c'; then $(CYGPATH_W) '../mdb6.c'; else $(CYGPATH_W) '$(srcdir)/../mdb6.c'; fi`
 
+ldap.o: ../ldap.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT ldap.o -MD -MP -MF $(DEPDIR)/ldap.Tpo -c -o ldap.o `test -f '../ldap.c' || echo '$(srcdir)/'`../ldap.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/ldap.Tpo $(DEPDIR)/ldap.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../ldap.c' object='ldap.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o ldap.o `test -f '../ldap.c' || echo '$(srcdir)/'`../ldap.c
+
+ldap.obj: ../ldap.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT ldap.obj -MD -MP -MF $(DEPDIR)/ldap.Tpo -c -o ldap.obj `if test -f '../ldap.c'; then $(CYGPATH_W) '../ldap.c'; else $(CYGPATH_W) '$(srcdir)/../ldap.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/ldap.Tpo $(DEPDIR)/ldap.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../ldap.c' object='ldap.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o ldap.obj `if test -f '../ldap.c'; then $(CYGPATH_W) '../ldap.c'; else $(CYGPATH_W) '$(srcdir)/../ldap.c'; fi`
+
+ldap_casa.o: ../ldap_casa.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT ldap_casa.o -MD -MP -MF $(DEPDIR)/ldap_casa.Tpo -c -o ldap_casa.o `test -f '../ldap_casa.c' || echo '$(srcdir)/'`../ldap_casa.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/ldap_casa.Tpo $(DEPDIR)/ldap_casa.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../ldap_casa.c' object='ldap_casa.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o ldap_casa.o `test -f '../ldap_casa.c' || echo '$(srcdir)/'`../ldap_casa.c
+
+ldap_casa.obj: ../ldap_casa.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT ldap_casa.obj -MD -MP -MF $(DEPDIR)/ldap_casa.Tpo -c -o ldap_casa.obj `if test -f '../ldap_casa.c'; then $(CYGPATH_W) '../ldap_casa.c'; else $(CYGPATH_W) '$(srcdir)/../ldap_casa.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/ldap_casa.Tpo $(DEPDIR)/ldap_casa.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../ldap_casa.c' object='ldap_casa.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o ldap_casa.obj `if test -f '../ldap_casa.c'; then $(CYGPATH_W) '../ldap_casa.c'; else $(CYGPATH_W) '$(srcdir)/../ldap_casa.c'; fi`
+
 dhcpd.o: ../dhcpd.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT dhcpd.o -MD -MP -MF $(DEPDIR)/dhcpd.Tpo -c -o dhcpd.o `test -f '../dhcpd.c' || echo '$(srcdir)/'`../dhcpd.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/dhcpd.Tpo $(DEPDIR)/dhcpd.Po
@@ -686,6 +749,20 @@ dhcpd.obj: ../dhcpd.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../dhcpd.c' object='dhcpd.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o dhcpd.obj `if test -f '../dhcpd.c'; then $(CYGPATH_W) '../dhcpd.c'; else $(CYGPATH_W) '$(srcdir)/../dhcpd.c'; fi`
+
+leasechain.o: ../leasechain.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT leasechain.o -MD -MP -MF $(DEPDIR)/leasechain.Tpo -c -o leasechain.o `test -f '../leasechain.c' || echo '$(srcdir)/'`../leasechain.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/leasechain.Tpo $(DEPDIR)/leasechain.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../leasechain.c' object='leasechain.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o leasechain.o `test -f '../leasechain.c' || echo '$(srcdir)/'`../leasechain.c
+
+leasechain.obj: ../leasechain.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT leasechain.obj -MD -MP -MF $(DEPDIR)/leasechain.Tpo -c -o leasechain.obj `if test -f '../leasechain.c'; then $(CYGPATH_W) '../leasechain.c'; else $(CYGPATH_W) '$(srcdir)/../leasechain.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/leasechain.Tpo $(DEPDIR)/leasechain.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='../leasechain.c' object='leasechain.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o leasechain.obj `if test -f '../leasechain.c'; then $(CYGPATH_W) '../leasechain.c'; else $(CYGPATH_W) '$(srcdir)/../leasechain.c'; fi`
 
 # This directory's subdirectories are mostly independent; you can cd
 # into them and run 'make' without going through this Makefile.
@@ -877,6 +954,7 @@ distclean-generic:
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
 	@echo "it deletes files that may require special tools to rebuild."
+@HAVE_ATF_FALSE@distclean-local:
 clean: clean-recursive
 
 clean-am: clean-checkPROGRAMS clean-generic mostlyclean-am
@@ -885,7 +963,7 @@ distclean: distclean-recursive
 	-rm -rf ./$(DEPDIR)
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
-	distclean-tags
+	distclean-local distclean-tags
 
 dvi: dvi-recursive
 
@@ -949,15 +1027,16 @@ uninstall-am:
 .PHONY: $(am__recursive_targets) CTAGS GTAGS TAGS all all-am check \
 	check-am clean clean-checkPROGRAMS clean-generic cscopelist-am \
 	ctags ctags-am distclean distclean-compile distclean-generic \
-	distclean-tags distdir dvi dvi-am html html-am info info-am \
-	install install-am install-data install-data-am install-dvi \
-	install-dvi-am install-exec install-exec-am install-html \
-	install-html-am install-info install-info-am install-man \
-	install-pdf install-pdf-am install-ps install-ps-am \
-	install-strip installcheck installcheck-am installdirs \
-	installdirs-am maintainer-clean maintainer-clean-generic \
-	mostlyclean mostlyclean-compile mostlyclean-generic pdf pdf-am \
-	ps ps-am tags tags-am uninstall uninstall-am
+	distclean-local distclean-tags distdir dvi dvi-am html html-am \
+	info info-am install install-am install-data install-data-am \
+	install-dvi install-dvi-am install-exec install-exec-am \
+	install-html install-html-am install-info install-info-am \
+	install-man install-pdf install-pdf-am install-ps \
+	install-ps-am install-strip installcheck installcheck-am \
+	installdirs installdirs-am maintainer-clean \
+	maintainer-clean-generic mostlyclean mostlyclean-compile \
+	mostlyclean-generic pdf pdf-am ps ps-am tags tags-am uninstall \
+	uninstall-am
 
 .PRECIOUS: Makefile
 
@@ -969,7 +1048,13 @@ info:
 	@echo "ATF_LIBS=$(ATF_LIBS)"
 
 @HAVE_ATF_TRUE@check: $(ATF_TESTS)
-@HAVE_ATF_TRUE@	sh ${top_srcdir}/tests/unittest.sh
+@HAVE_ATF_TRUE@	-cp -n $(top_srcdir)/server/tests/Atffile Atffile
+@HAVE_ATF_TRUE@	sh ${top_builddir}/tests/unittest.sh
+
+@HAVE_ATF_TRUE@distclean-local:
+@HAVE_ATF_TRUE@	@if test $(top_srcdir) != ${top_builddir}; then \
+@HAVE_ATF_TRUE@		rm -f Atffile; \
+@HAVE_ATF_TRUE@	fi
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

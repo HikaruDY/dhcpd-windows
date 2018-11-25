@@ -1,8 +1,8 @@
-              Internet Systems Consortium DHCP Distribution
-                         Version 4.1-ESV-R15-P1
-                           28 February 2018
+	      Internet Systems Consortium DHCP Distribution
+			    Version 4.3.4
+			    29 March 2016
 
-                             README FILE
+			      README FILE
 
 You should read this file carefully before trying to install or use
 the ISC DHCP Distribution.
@@ -38,6 +38,7 @@ the ISC DHCP Distribution.
 	  5.8.3 Other Solaris Items
 	 5.9	 AIX
 	 5.10	 MacOS X
+         5.11    ATF
 	6	SUPPORT
 	 6.1	 HOW TO REPORT BUGS
 	7	HISTORY
@@ -50,7 +51,8 @@ client and relay subdirectories.  The README file (this file) includes
 late-breaking operational and system-specific information that you
 should read even if you don't want to read the manual pages, and that
 you should *certainly* read if you run into trouble.  Internet
-standards relating to the DHCP protocol are stored in the doc
+standards relating to the DHCP protocol are listed in the References
+document that is available in html, txt and xml formats in doc/
 subdirectory.  You will have the best luck reading the manual pages if
 you build this software and then install it, although you can read
 them directly out of the distribution if you need to.
@@ -98,12 +100,14 @@ directory, it may not have up-to-date information).
 
 			    RELEASE STATUS
 
-This is ISC DHCP 4.1-ESV-R15-P1, an extended support (ESV) release that
-provides patches for several bugs.
-
-ESVs are intended for users who have longer upgrade constraints
-Please see our web page http://www.isc.org/downloads/software-support-policy/
-for more information on ESVs
+This is ISC DHCP 4.3.x  The major theme for this release is "ipv6 uplift",
+in which we enhance the v6 code to support many of the features found
+in the v4 code.  These include: support for v6, support for on_commit,
+on_expiry and on_release in v6, support for accessing v6 relay options
+and better log messages for v6 addresses.  Non v6 features include:
+support for the standard DDNS, better OMAPI class and sub-class support
+allowing for dynamic addition and removal of sub-classes, and support for
+DDNS without zone statements.
 
 In this release, the DHCPv6 server should be fully functional on Linux,
 Solaris, or any BSD.  The DHCPv6 client should be similarly functional
@@ -121,10 +125,9 @@ If you wish to run the DHCP Distribution on Linux, please see the
 Linux-specific notes later in this document.  If you wish to run on an
 SCO release, please see the SCO-specific notes later in this document.
 You particularly need to read these notes if you intend to support
-Windows 95 clients.  If you are running a version of FreeBSD prior to
-2.2, please read the note on FreeBSD.  If you are running HP-UX or
-Ultrix, please read the notes for those operating systems below.  If
-you are running NeXTSTEP, please see the notes on NeXTSTEP below.
+Windows 95 clients.  If you are running HP-UX or Ultrix, please read the 
+notes for those operating systems below.  If you are running NeXTSTEP, 
+please see the notes on NeXTSTEP below.
 
 If you start dhcpd and get a message, "no free bpf", that means you
 need to configure the Berkeley Packet Filter into your operating
@@ -139,12 +142,12 @@ information.   On Digital Unix, type ``man pfilt''.
 To build the DHCP Distribution, unpack the compressed tar file using
 the tar utility and the gzip command - type something like:
 
-	gunzip dhcp-4.1-ESV-R15-P1.tar.gz
-	tar xvf dhcp-4.1-ESV-R15-P1.tar
+	gunzip dhcp-4.3.4.tar.gz
+	tar xvf dhcp-4.3.4.tar
 
 			    CONFIGURING IT
 
-Now, cd to the dhcp-4.1-ESV-R15-P1 subdirectory that you've just created and
+Now, cd to the dhcp-4.3.4 subdirectory that you've just created and
 configure the source tree by typing:
 
 	./configure
@@ -163,8 +166,12 @@ You can get a list of these by typing:
 			 DYNAMIC DNS UPDATES
 
 A fully-featured implementation of dynamic DNS updates is included in
-this release.   There are no build dependencies with any BIND version
-- this version can and should just use the resolver in your C library.
+this release.  It uses libraries from BIND and, to avoid issues with
+different versions, includes the necessary BIND version.  The appropriate
+BIND libraries will be compiled and installed in the bind subdirectory
+as part of the make step.  In order to build the necessary libraries you
+will need to have "gmake" available on your build system.
+
 
 There is documentation for the DDNS support in the dhcpd.conf manual
 page - see the beginning of this document for information on finding
@@ -191,6 +198,10 @@ as we can manage, but there are a few for which this is difficult.
 If you get errors on a system not mentioned above, you will need
 to do some programming or debugging on your own to get the DHCP
 Distribution working.
+
+If you cross compile you have to follow the instructions from
+the BIND README, in particular you must set the BUILD_CC
+environment variable.
 
 		   INSTALLING THE DHCP DISTRIBUTION
 
@@ -246,7 +257,7 @@ and the "protocol not configured" problem.
 		    LINUX: PROTOCOL NOT CONFIGURED
 
 If you get the following message, it's because your kernel doesn't
-have the linux packetfilter or raw packet socket configured:
+have the Linux packetfilter or raw packet socket configured:
 
  Make sure CONFIG_PACKET (Packet socket) and CONFIG_FILTER (Socket
  Filtering) are enabled in your kernel configuration
@@ -403,7 +414,7 @@ Versions of FreeBSD prior to 2.2 have a bug in BPF support in that the
 ethernet driver swaps the ethertype field in the ethernet header
 downstream from BPF, which corrupts the output packet.   If you are
 running a version of FreeBSD prior to 2.2, and you find that dhcpd
-can't communicate with its clients, you should #define BROKEN_FREEBSD_BPF
+can't communicate with its clients, you should #define BROKEN_FREEBSD_BPF 
 in site.h and recompile.
 
 Modern versions of FreeBSD include the ISC DHCP 3.0 client as part of
@@ -412,13 +423,38 @@ relay agent) is available from the Ports Collection in
 /usr/ports/net/isc-dhcp3, or as a package on FreeBSD installation
 CDROMs.
 
-                              NeXTSTEP
+			      NeXTSTEP
 
 The NeXTSTEP support uses the NeXTSTEP Berkeley Packet Filter
 extension, which is not included in the base NextStep system.  You
 must install this extension in order to get dhcpd or dhclient to work.
 
 			       SOLARIS
+
+There are two known issues seen when compiling using the Sun compiler.
+
+The first is that older Sun compilers generate an error on some of
+our uses of the flexible array option.  Newer versions only generate
+a warning, which can be safely ignored.  If you run into this error
+("type of struct member "buf" can not be derived from structure with
+flexible array member"), upgrade your tools to  Oracle Solaris Studio 
+(previously Sun Studio) 12 or something newer.
+
+The second is the interaction between the configure script and the
+makefiles for the Bind libraries.  Currently we don't pass all
+environment variables between the DHCP configure and the Bind configure.
+
+If you attempt to specify the compiler you wish to use like this:
+
+	CC=/opt/SUNWspro/bin/cc ./configure
+
+"make" may not build the Bind libraries with that compiler.
+
+In order to use the same compiler for Bind and DHCP we suggest the
+following commands:
+
+	CC=/opt/SUNWspro/bin/cc ./configure
+	CC=/opt/SUNWspro/bin/cc make
 
 				Solaris 11
 
@@ -510,7 +546,7 @@ interfaces.)
 We have reports of Windows XP clients having difficulty retrieving
 addresses from a server running on an AIX machine.  This issue
 was traced to the client requiring messages be sent to the all ones
-broadcast address (255.255.255.255) while the AIX server was sending
+broadcast address (255.255.255.255) while the AIX server was sending 
 to 192.168.0.255.
 
 You may be able to solve this by including a relay between the client
@@ -553,6 +589,18 @@ Note the Dynamic Store (from which /var/run/resolv.conf is built) is
 recomputed from scratch when the current location/set is changed.
 Running the dhclient-script reinstalls the resolv.conf.dhclient6
 configuration.
+
+
+			       ATF
+
+Please see the file DHCP/doc/devel/atf.dox for a description of building
+and using these tools.  
+
+The optional unit tests use ATF (Automated Testing Framework) including
+the atf-run and atf-report tools. ATF deprecated these tools in
+version 0.19 and removed these tools from its sources in version 0.20,
+requiring you to get an older version, use Kyua with an ATF compatibility
+package or use the version included in the Bind sources.
 
 			       SUPPORT
 
@@ -597,10 +645,10 @@ has been resolved, then we're still working on it.
 
 PLEASE DO NOT REPORT BUGS IN OLD SOFTWARE RELEASES!  Fetch the latest
 release and see if the bug is still in that version of the software,
-and if it's not, _then_ report it.  ISC release versions always have
-three numbers, for example: 1.2.3.  The 'major release' is 1 here,
-the 'minor release' is 2, and the 'maintenance release' is 3.  ISC
-will accept bug reports against the most recent two major.minor
+and if it is still present, _then_ report it.  ISC release versions 
+always have three numbers, for example: 1.2.3.  The 'major release' is 
+1 here, the 'minor release' is 2, and the 'maintenance release' is 3.  
+ISC will accept bug reports against the most recent two major.minor
 releases: for example, 1.0.0 and 0.9.0, but not 0.8.* or prior.
 
 PLEASE take a moment to determine where the ISC DHCP distribution
@@ -621,42 +669,42 @@ report.  This will save us a great deal of time and more informative
 bug reports are more likely to get handled more quickly overall.
 
       1.  The specific operating system name and version of the
-          machine on which the DHCP server or client is running.
+	  machine on which the DHCP server or client is running.
       2.  The specific operating system name and version of the
-          machine on which the client is running, if you are having
-          trouble getting a client working with the server.
+	  machine on which the client is running, if you are having
+	  trouble getting a client working with the server.
       3.  If you're running Linux, the version number we care about is
-          the kernel version and maybe the library version, not the
-          distribution version - e.g., while we don't mind knowing
-          that you're running Redhat version mumble.foo, we must know
-          what kernel version you're running, and it helps if you can
-          tell us what version of the C library you're running,
-          although if you don't know that off the top of your head it
-          may be hard for you to figure it out, so don't go crazy
-          trying.
+	  the kernel version and maybe the library version, not the
+	  distribution version - e.g., while we don't mind knowing
+	  that you're running Redhat version mumble.foo, we must know
+	  what kernel version you're running, and it helps if you can
+	  tell us what version of the C library you're running,
+	  although if you don't know that off the top of your head it
+	  may be hard for you to figure it out, so don't go crazy
+	  trying.
       4.  The specific version of the DHCP distribution you're
-          running, as reported by dhcpd -t.
+	  running, as reported by dhcpd -t.
       5.  Please explain the problem carefully, thinking through what
-          you're saying to ensure that you don't assume we know
-          something about your situation that we don't know.
+	  you're saying to ensure that you don't assume we know
+	  something about your situation that we don't know.
       6.  Include your dhcpd.conf and dhcpd.leases file as MIME attachments
 	  if they're not over 100 kilobytes in size each.  If they are
-	  this large, please make them available to us eg via a hidden
+	  this large, please make them available to us, e.g., via a hidden
 	  http:// URL or FTP site.  If you're not comfortable releasing
 	  this information due to sensitive contents, you may encrypt
 	  the file to our release signing key, available on our website.
       7.  Include a log of your server or client running until it
-          encounters the problem - for example, if you are having
-          trouble getting some client to get an address, restart the
-          server with the -d flag and then restart the client, and
-          send us what the server prints.   Likewise, with the client,
-          include the output of the client as it fails to get an
-          address or otherwise does the wrong thing.   Do not leave
-          out parts of the output that you think aren't interesting.
+	  encounters the problem - for example, if you are having
+	  trouble getting some client to get an address, restart the
+	  server with the -d flag and then restart the client, and
+	  send us what the server prints.   Likewise, with the client,
+	  include the output of the client as it fails to get an
+	  address or otherwise does the wrong thing.   Do not leave
+	  out parts of the output that you think aren't interesting.
       8.  If the client or server is dumping core, please run the
-          debugger and get a stack trace, and include that in your
-          bug report.   For example, if your debugger is gdb, do the
-          following:
+	  debugger and get a stack trace, and include that in your
+	  bug report.   For example, if your debugger is gdb, do the
+	  following:
 
 		gdb dhcpd dhcpd.core
 		(gdb) where

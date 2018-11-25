@@ -71,7 +71,7 @@ isc_result_t omapi_listen_addr (omapi_object_t *h,
 
 	/* Currently only support IPv4 addresses. */
 	if (addr->addrtype != AF_INET)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	/* Get the handle. */
 	obj = (omapi_listener_object_t *)0;
@@ -220,7 +220,7 @@ isc_result_t omapi_accept (omapi_object_t *h)
 	int socket;
 
 	if (h -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	listener = (omapi_listener_object_t *)h;
 
 	/* Accept the connection. */
@@ -402,7 +402,7 @@ isc_result_t omapi_listener_configure_security (omapi_object_t *h,
 	omapi_listener_object_t *l;
 
 	if (h -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	l = (omapi_listener_object_t *)h;
 
 	l -> verify_addr = verify_addr;
@@ -416,7 +416,7 @@ isc_result_t omapi_listener_set_value (omapi_object_t *h,
 				      omapi_typed_data_t *value)
 {
 	if (h -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	
 	if (h -> inner && h -> inner -> type -> set_value)
 		return (*(h -> inner -> type -> set_value))
@@ -430,7 +430,7 @@ isc_result_t omapi_listener_get_value (omapi_object_t *h,
 				       omapi_value_t **value)
 {
 	if (h -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	
 	if (h -> inner && h -> inner -> type -> get_value)
 		return (*(h -> inner -> type -> get_value))
@@ -444,7 +444,7 @@ isc_result_t omapi_listener_destroy (omapi_object_t *h,
 	omapi_listener_object_t *l;
 
 	if (h -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	l = (omapi_listener_object_t *)h;
 
 #ifdef DEBUG_PROTOCOL
@@ -462,7 +462,7 @@ isc_result_t omapi_listener_signal_handler (omapi_object_t *h,
 					    const char *name, va_list ap)
 {
 	if (h -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 	
 	if (h -> inner && h -> inner -> type -> signal_handler)
 		return (*(h -> inner -> type -> signal_handler)) (h -> inner,
@@ -478,7 +478,7 @@ isc_result_t omapi_listener_stuff_values (omapi_object_t *c,
 					  omapi_object_t *l)
 {
 	if (l -> type != omapi_type_listener)
-		return ISC_R_INVALIDARG;
+		return DHCP_R_INVALIDARG;
 
 	if (l -> inner && l -> inner -> type -> stuff_values)
 		return (*(l -> inner -> type -> stuff_values)) (c, id,

@@ -1,6 +1,6 @@
-.\"	$Id: dhcp-eval.5,v 1.27.364.3.6.2 2012/05/17 15:52:27 sar Exp $
+.\"	$Id: dhcp-eval.5,v 1.33 2012/05/17 15:50:14 sar Exp $
 .\"
-.\" Copyright (c) 2009-2012,2014 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2009-2012,2014-2015 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 1996-2003 by Internet Software Consortium
 .\"
@@ -296,6 +296,16 @@ The \fBconfig-option\fR operator returns the value for the specified option
 that the DHCP client or server has been configured to send.
 .RE
 .PP
+.B gethostname()
+.PP
+.RS 0.25i
+The \fBgethostname()\fR function returns a data string whose contents are a
+character string, the results of calling gethostname() on the local
+system with a size limit of 255 bytes (not including NULL terminator).  This
+can be used for example to configure dhclient to send the local hostname
+without knowing the local hostname at the time dhclient.conf is written.
+.RE
+.PP
 .B hardware
 .PP
 .RS 0.25i
@@ -546,6 +556,21 @@ such.
 It is possible to use the execute statement in any context, not only
 on events.  If you put it in a regular scope in the configuration file
 you will execute that command every time a scope is evaluated.
+.RE
+.PP
+.B parse-vendor-option;\fR
+.RS 0.25i
+.PP
+The \fBparse-vendor-option\fR statement attempts to parse a vendor
+option (code 43).  It is only useful while processing a packet on the server
+and requires that the administrator has already used the
+\fBvendor-option-space\fR statement to select a valid vendor space.
+.PP
+This functionality may be used if the server needs to take different
+actions depending on the values the client placed in the vendor option
+and the sub-options are not at fixed locations.  It is handled as an
+action to allow an administrator to examine the incoming options and
+choose the correct vendor space.
 .RE
 .SH REFERENCE: DYNAMIC DNS UPDATES
 .PP
