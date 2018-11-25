@@ -1,11 +1,10 @@
 /*
- * Copyright (c) 2014 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2004,2007-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2001-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -21,8 +20,8 @@
  *   <info@isc.org>
  *   http://www.isc.org/
  */
-#ifndef MINIRES_H
-#define MINIRES_H
+#ifndef NS_NAME_H
+#define NS_NAME_H
 
 #include "cdefs.h"
 #include "osdep.h"
@@ -43,4 +42,4 @@ int MRns_name_pton(const char *, u_char *, size_t);
 int MRns_name_uncompress_list(const unsigned char*, int buflen, char*, size_t);
 int MRns_name_compress_list(const char*, int buflen, unsigned char*, size_t);
 
-#endif /* MINIRES_H */
+#endif /* NS_NAME_H */

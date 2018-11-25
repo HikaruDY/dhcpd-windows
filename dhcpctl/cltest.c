@@ -3,12 +3,12 @@
    Example program that uses the dhcpctl library. */
 
 /*
- * Copyright (c) 2004,2007,2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2000-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -38,6 +38,42 @@
 #include <stdarg.h>
 #include "omapip/result.h"
 #include "dhcpctl.h"
+#include "dhcpd.h"
+
+/* Fixups */
+isc_result_t find_class (struct class **c, const char *n, const char *f, int l)
+{
+	return 0;
+}
+int parse_allow_deny (struct option_cache **oc, struct parse *cfile, int flag)
+{
+	return 0;
+}
+void dhcp (struct packet *packet) { }
+void bootp (struct packet *packet) { }
+
+#ifdef DHCPv6
+/* XXX: should we warn or something here? */
+void dhcpv6(struct packet *packet) { }
+#ifdef DHCP4o6
+isc_result_t dhcpv4o6_handler(omapi_object_t *h)
+{
+	return ISC_R_NOTIMPLEMENTED;
+}
+#endif /* DHCP4o6 */
+#endif /* DHCPv6 */
+
+int check_collection (struct packet *p, struct lease *l, struct collection *c)
+{
+	return 0;
+}
+void classify (struct packet *packet, struct class *class) { }
+
+isc_result_t dhcp_set_control_state (control_object_state_t oldstate,
+				     control_object_state_t newstate)
+{
+	return ISC_R_SUCCESS;
+}
 
 int main (int, char **);
 

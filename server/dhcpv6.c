@@ -1,9 +1,9 @@
 /*
- * Copyright (C) 2006-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) 2006-2017 by Internet Systems Consortium, Inc. ("ISC")
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH
  * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
@@ -27,6 +27,14 @@ static void send_dhcpv4_response(struct data_string *raw);
 static void recv_dhcpv4_query(struct data_string *raw);
 static void dhcp4o6_dhcpv4_query(struct data_string *reply_ret,
 				 struct packet *packet);
+
+struct udp_data4o6 {
+	u_int16_t src_port;
+	u_int8_t  rsp_opt_exist;
+	u_int8_t  reserved;
+};
+
+static int offset_data4o6 = 36; /* 16+16+4 */
 #endif
 
 /*
@@ -176,6 +184,19 @@ static isc_result_t get_first_ia_addr_val (struct packet* packet, int addr_type,
 static void
 set_reply_tee_times(struct reply_state* reply, unsigned ia_cursor);
 
+static const char *iasubopt_plen_str(struct iasubopt *lease);
+static int release_on_roam(struct reply_state *reply);
+
+static int reuse_lease6(struct reply_state *reply, struct iasubopt *lease);
+static void shorten_lifetimes(struct reply_state *reply, struct iasubopt *lease,
+			      time_t age, int threshold);
+static void write_to_packet(struct reply_state *reply, unsigned ia_cursor);
+static const char *iasubopt_plen_str(struct iasubopt *lease);
+
+#ifdef NSUPDATE
+static void ddns_update_static6(struct reply_state* reply);
+#endif
+
 #ifdef DHCP4o6
 /*
  * \brief Omapi I/O handler
@@ -198,7 +219,7 @@ isc_result_t dhcpv4o6_handler(omapi_object_t *h) {
 
 	cc = recv(dhcp4o6_fd, buf, sizeof(buf), 0);
 
-	if (cc < DHCP_FIXED_NON_UDP + 32)
+	if (cc < DHCP_FIXED_NON_UDP + offset_data4o6)
 		return ISC_R_UNEXPECTED;
 	memset(&raw, 0, sizeof(raw));
 	if (!buffer_allocate(&raw.buffer, cc, MDL)) {
@@ -224,7 +245,7 @@ isc_result_t dhcpv4o6_handler(omapi_object_t *h) {
  * \brief Send the DHCPv4-response back to the DHCPv6 side
  *  (DHCPv6 server function)
  *
- * Format: interface:16 + address:16 + DHCPv6 DHCPv4-response message
+ * Format: interface:16 + address:16 + udp:4 + DHCPv6 DHCPv4-response message
  *
  * \param raw the IPC message content
  */
@@ -233,6 +254,7 @@ static void send_dhcpv4_response(struct data_string *raw) {
 	char name[16 + 1];
 	struct sockaddr_in6 to_addr;
 	char pbuf[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
+	struct udp_data4o6 udp_data;
 	int send_ret;
 
 	memset(name, 0, sizeof(name));
@@ -250,26 +272,32 @@ static void send_dhcpv4_response(struct data_string *raw) {
 	memset(&to_addr, 0, sizeof(to_addr));
 	to_addr.sin6_family = AF_INET6;
 	memcpy(&to_addr.sin6_addr, raw->data + 16, 16);
-	if ((raw->data[32] == DHCPV6_RELAY_FORW) ||
-	    (raw->data[32] == DHCPV6_RELAY_REPL)) {
-		to_addr.sin6_port = local_port;
+	memset(&udp_data, 0, sizeof(udp_data));
+	memcpy(&udp_data, raw->data + 32, 4);
+	if ((raw->data[36] == DHCPV6_RELAY_FORW) ||
+	    (raw->data[36] == DHCPV6_RELAY_REPL)) {
+		if (udp_data.rsp_opt_exist) {
+			to_addr.sin6_port = udp_data.src_port;
+		} else {
+			to_addr.sin6_port = local_port;
+		}
 	} else {
 		to_addr.sin6_port = remote_port;
 	}
 
 	log_info("send_dhcpv4_response(): sending %s on %s to %s port %d",
-		 dhcpv6_type_names[raw->data[32]],
+		 dhcpv6_type_names[raw->data[36]],
 		 name,
 		 inet_ntop(AF_INET6, raw->data + 16, pbuf, sizeof(pbuf)),
 		 ntohs(to_addr.sin6_port));
 
-	send_ret = send_packet6(ip, raw->data + 32, raw->len - 32, &to_addr);
+	send_ret = send_packet6(ip, raw->data + 36, raw->len - 36, &to_addr);
 	if (send_ret < 0) {
 		log_error("send_dhcpv4_response: send_packet6(): %m");
-	} else if (send_ret != raw->len - 32) {
+	} else if (send_ret != raw->len - 36) {
 		log_error("send_dhcpv4_response: send_packet6() "
 			  "sent %d of %d bytes",
-			  send_ret, raw->len - 32);
+			  send_ret, raw->len - 36);
 	}
 }
 #endif /* DHCP4o6 */
@@ -844,6 +872,9 @@ static const int required_opts_solicit[] = {
 };
 static const int required_opts_agent[] = {
 	D6O_INTERFACE_ID,
+#if defined(RELAY_PORT)
+	D6O_RELAY_SOURCE_PORT,
+#endif
 	D6O_RELAY_MSG,
 	0
 };
@@ -1248,7 +1279,6 @@ try_client_v6_address(struct iasubopt **addr,
 	return result;
 }
 
-
 /*!
  *
  * \brief  Get an IPv6 address for the client.
@@ -1330,14 +1360,37 @@ pick_v6_address(struct reply_state *reply)
 		     (!permitted(reply->packet, pond->permit_list))))
 			continue;
 
+#ifdef EUI_64
+		/* If pond is EUI-64 but client duid isn't a valid EUI-64
+		 * id, then skip this pond */
+		if (pond->use_eui_64 &&
+		    !valid_eui_64_duid(&reply->ia->iaid_duid, IAID_LEN)) {
+			continue;
+		}
+#endif
+
 		start_pool = pond->last_ipv6_pool;
 		i = start_pool;
 		do {
 			p = pond->ipv6_pools[i];
 			if (p->pool_type == D6O_IA_NA) {
-				result = create_lease6(p, addr, &attempts,
-					               &reply->ia->iaid_duid,
-					               cur_time + 120);
+#ifdef EUI_64
+				if (pond->use_eui_64) {
+					result =
+					create_lease6_eui_64(p, addr,
+					              &reply->ia->iaid_duid,
+					              cur_time + 120);
+				}
+				else
+#endif
+				{
+					result =
+					create_lease6(p, addr, &attempts,
+						      &reply->ia->iaid_duid,
+					              cur_time + 120);
+
+				}
+
 				if (result == ISC_R_SUCCESS) {
 					/*
 					 * Record the pool used (or next one if
@@ -1415,22 +1468,25 @@ try_client_v6_prefix(struct iasubopt **pref,
 	if (requested_pref->len < sizeof(tmp_plen) + sizeof(tmp_pref)) {
 		return DHCP_R_INVALIDARG;
 	}
+
 	tmp_plen = (int) requested_pref->data[0];
-	if ((tmp_plen < 3) || (tmp_plen > 128) ||
-	    ((int)tmp_plen != pool->units)) {
+	if ((tmp_plen < 3) || (tmp_plen > 128)) {
 		return ISC_R_FAILURE;
 	}
+
 	memcpy(&tmp_pref, requested_pref->data + 1, sizeof(tmp_pref));
 	if (IN6_IS_ADDR_UNSPECIFIED(&tmp_pref)) {
 		return ISC_R_FAILURE;
 	}
+
 	ia.len = 16;
 	memcpy(&ia.iabuf, &tmp_pref, 16);
 	if (!is_cidr_mask_valid(&ia, (int) tmp_plen)) {
 		return ISC_R_FAILURE;
 	}
 
-	if (!ipv6_in_pool(&tmp_pref, pool)) {
+	if (!ipv6_in_pool(&tmp_pref, pool) ||
+	    ((int)tmp_plen != pool->units)) {
 		return ISC_R_ADDRNOTAVAIL;
 	}
 
@@ -1442,6 +1498,7 @@ try_client_v6_prefix(struct iasubopt **pref,
 	if (result != ISC_R_SUCCESS) {
 		return result;
 	}
+
 	(*pref)->addr = tmp_pref;
 	(*pref)->plen = tmp_plen;
 
@@ -1450,6 +1507,7 @@ try_client_v6_prefix(struct iasubopt **pref,
 	if (result != ISC_R_SUCCESS) {
 		iasubopt_dereference(pref, MDL);
 	}
+
 	return result;
 }
 
@@ -1665,13 +1723,6 @@ eval_prefix_mode(int len, int preflen, int prefix_mode) {
 		/* otherwise use it */
 		break;
 	}
-
-#if defined (DEBUG)
-	log_debug("eval_prefix_mode: "
-		  "len %d, preflen %d, mode %s, use_it %d",
-		  len, preflen,
-		  prefix_length_modes.values[prefix_mode].name, use_it);
-#endif
 
 	return (use_it);
 }
@@ -2068,7 +2119,7 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 	 * A not included IA ("cleanup" below) could give a Renew/Rebind.
 	 */
 	oc = lookup_option(&dhcpv6_universe, packet_ia, D6O_IAADDR);
-	reply->min_valid = reply->min_prefer = 0xffffffff;
+	reply->min_valid = reply->min_prefer = INFINITE_TIME;
 	reply->client_valid = reply->client_prefer = 0;
 	for (; oc != NULL ; oc = oc->next) {
 		status = reply_process_addr(reply, oc);
@@ -2170,24 +2221,16 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 			goto cleanup;
 	}
 
-	reply->cursor += store_options6((char *)reply->buf.data + reply->cursor,
-					sizeof(reply->buf) - reply->cursor,
-					reply->reply_ia, reply->packet,
-					required_opts_IA, NULL);
-
-	/* Reset the length of this IA to match what was just written. */
-	putUShort(reply->buf.data + ia_cursor + 2,
-		  reply->cursor - (ia_cursor + 4));
-
-	/* Calculate T1/T2 and stuff them in the reply */
-	set_reply_tee_times(reply, ia_cursor);
-
 	/*
 	 * yes, goto's aren't the best but we also want to avoid extra
 	 * indents
 	 */
-	if (status == ISC_R_CANCELED)
+	if (status == ISC_R_CANCELED) {
+		/* We're replying with a status code so we still need to
+		 * write it out in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 		goto cleanup;
+	}
 
 	/*
 	 * Handle static leases, we always log stuff and if it's
@@ -2204,6 +2247,12 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 				     reply->client_id.data, 60),
 			 iaid);
 
+		/* Write the lease out in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
+#ifdef NSUPDATE
+		/* Performs DDNS updates if we're configured to do them */
+		ddns_update_static6(reply);
+#endif
 		if ((reply->buf.reply.msg_type == DHCPV6_REPLY) &&
 		    (reply->on_star.on_commit != NULL)) {
 			execute_statements(NULL, reply->packet, NULL, NULL,
@@ -2245,24 +2294,28 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 	 * Loop through the assigned dynamic addresses, referencing the
 	 * leases onto this IA_NA rather than any old ones, and updating
 	 * pool timers for each (if any).
+	 *
+	 * Note that we must do ddns_updates() before we test for lease
+	 * reuse (so we'll know if DNS entries are different).  To ensure
+	 * we don't break any configs, we run on_commit statements before
+	 * we do ddns_updates() just in case the former affects the later.
+	 * This is symetrical with v4 logic.  We always run on_commit and
+	 * ddns_udpates() whether a lease is reused or renewed.
 	 */
-
 	if ((reply->ia->num_iasubopt != 0) &&
 	    (reply->buf.reply.msg_type == DHCPV6_REPLY)) {
+		int must_commit = 0;
 		struct iasubopt *tmp;
 		struct data_string *ia_id;
 		int i;
 
 		for (i = 0 ; i < reply->ia->num_iasubopt ; i++) {
 			tmp = reply->ia->iasubopt[i];
-
-			if (tmp->ia != NULL)
+			if (tmp->ia != NULL) {
 				ia_dereference(&tmp->ia, MDL);
-			ia_reference(&tmp->ia, reply->ia, MDL);
+			}
 
-			/* Commit 'hard' bindings. */
-			renew_lease6(tmp->ipv6_pool, tmp);
-			schedule_lease_timeout(tmp->ipv6_pool);
+			ia_reference(&tmp->ia, reply->ia, MDL);
 
 			/* If we have anything to do on commit do it now */
 			if (tmp->on_star.on_commit != NULL) {
@@ -2278,9 +2331,8 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 			}
 
 #if defined (NSUPDATE)
-			/*
-			 * Perform ddns updates.
-			 */
+
+			/* Perform ddns updates */
 			oc = lookup_option(&server_universe, reply->opt_state,
 					   SV_DDNS_UPDATES);
 			if ((oc == NULL) ||
@@ -2294,16 +2346,29 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 					     tmp, NULL, reply->opt_state);
 			}
 #endif
-			/* Do our threshold check. */
-			check_pool6_threshold(reply, tmp);
+			if (!reuse_lease6(reply, tmp)) {
+				/* Commit 'hard' bindings. */
+				must_commit = 1;
+				renew_lease6(tmp->ipv6_pool, tmp);
+				schedule_lease_timeout(tmp->ipv6_pool);
+
+				/* Do our threshold check. */
+				check_pool6_threshold(reply, tmp);
+			}
 		}
+
+		/* write the IA_NA in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 
 		/* Remove any old ia from the hash. */
 		if (reply->old_ia != NULL) {
-			ia_id = &reply->old_ia->iaid_duid;
-			ia_hash_delete(ia_na_active,
-				       (unsigned char *)ia_id->data,
-				       ia_id->len, MDL);
+			if (!release_on_roam(reply)) {
+				ia_id = &reply->old_ia->iaid_duid;
+				ia_hash_delete(ia_na_active,
+					       (unsigned char *)ia_id->data,
+					       ia_id->len, MDL);
+			}
+
 			ia_dereference(&reply->old_ia, MDL);
 		}
 
@@ -2313,8 +2378,14 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 		ia_hash_add(ia_na_active, (unsigned char *)ia_id->data,
 			    ia_id->len, reply->ia, MDL);
 
-		write_ia(reply->ia);
+		/* If we couldn't reuse all of the iasubopts, we
+		* must update udpate the lease db */
+		if (must_commit) {
+			write_ia(reply->ia);
+		}
 	} else {
+		/* write the IA_NA in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 		schedule_lease_timeout_reply(reply);
 	}
 
@@ -2353,6 +2424,28 @@ reply_process_ia_na(struct reply_state *reply, struct option_cache *ia) {
 }
 
 /*
+ * Writes the populated IA_xx in wire format to the reply buffer
+ */
+void
+write_to_packet(struct reply_state *reply, unsigned ia_cursor) {
+	reply->cursor += store_options6((char *)reply->buf.data + reply->cursor,
+					sizeof(reply->buf) - reply->cursor,
+					reply->reply_ia, reply->packet,
+					(reply->ia->ia_type != D6O_IA_PD ?
+					required_opts_IA : required_opts_IA_PD),
+					NULL);
+
+	/* Reset the length of this IA to match what was just written. */
+	putUShort(reply->buf.data + ia_cursor + 2,
+		  reply->cursor - (ia_cursor + 4));
+
+	if (reply->ia->ia_type != D6O_IA_TA) {
+		/* Calculate T1/T2 and stuff them in the reply */
+		set_reply_tee_times(reply, ia_cursor);
+	}
+}
+
+/*
  * Process an IAADDR within a given IA_xA, storing any IAADDR reply contents
  * into the reply's current ia-scoped option cache.  Returns ISC_R_CANCELED
  * in the event we are replying with a status code and do not wish to process
@@ -2368,6 +2461,9 @@ reply_process_addr(struct reply_state *reply, struct option_cache *addr) {
 	struct option_cache *oc;
 	struct data_string iaaddr, data;
 	isc_result_t status = ISC_R_SUCCESS;
+#ifdef EUI_64
+	int invalid_for_eui_64 = 0;
+#endif
 
 	/* Initializes values that will be cleaned up. */
 	memset(&iaaddr, 0, sizeof(iaaddr));
@@ -2429,8 +2525,31 @@ reply_process_addr(struct reply_state *reply, struct option_cache *addr) {
 			break;
 	}
 
+#ifdef EUI_64
+	if (subnet) {
+		/* If the requested address falls into an EUI-64 pool, then
+		 * we need to verify if it has EUI-64 duid AND the requested
+		 * address is correct for that duid.  If not we treat it just
+		 * like an not-on-link request. */
+		struct ipv6_pool* pool = NULL;
+		struct in6_addr* addr = (struct in6_addr*)(iaaddr.data);
+		if ((find_ipv6_pool(&pool, D6O_IA_NA, addr) == ISC_R_SUCCESS)
+		    && (pool->ipv6_pond->use_eui_64) &&
+		   (!valid_for_eui_64_pool(pool, &reply->client_id, 0, addr))) {
+			log_debug ("Requested address: %s,"
+				   " not valid for EUI-64 pool",
+				   pin6_addr(addr));
+			invalid_for_eui_64 = 1;
+		}
+	}
+#endif
+
 	/* Address not found on shared network. */
+#ifdef EUI_64
+	if ((subnet == NULL) || invalid_for_eui_64) {
+#else
 	if (subnet == NULL) {
+#endif
 		/* Ignore this address on 'soft' bindings. */
 		if (reply->packet->dhcpv6_msg_type == DHCPV6_SOLICIT) {
 			/* disable rapid commit */
@@ -2496,6 +2615,7 @@ reply_process_addr(struct reply_state *reply, struct option_cache *addr) {
 		reply->send_prefer = reply->send_valid = 0;
 		goto send_addr;
 	}
+
 
 	/* Verify the address belongs to the client. */
 	if (!address_is_owned(reply, &tmp_addr)) {
@@ -2796,7 +2916,7 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 	 * Deal with an IAADDR for lifetimes.
 	 * For all or none, process IAADDRs as hints.
 	 */
-	reply->min_valid = reply->min_prefer = 0xffffffff;
+	reply->min_valid = reply->min_prefer = INFINITE_TIME;
 	reply->client_valid = reply->client_prefer = 0;
 	oc = lookup_option(&dhcpv6_universe, packet_ia, D6O_IAADDR);
 	for (; oc != NULL; oc = oc->next) {
@@ -2920,21 +3040,17 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 		goto cleanup;
 
       store:
-	reply->cursor += store_options6((char *)reply->buf.data + reply->cursor,
-					sizeof(reply->buf) - reply->cursor,
-					reply->reply_ia, reply->packet,
-					required_opts_IA, NULL);
-
-	/* Reset the length of this IA to match what was just written. */
-	putUShort(reply->buf.data + ia_cursor + 2,
-		  reply->cursor - (ia_cursor + 4));
 
 	/*
 	 * yes, goto's aren't the best but we also want to avoid extra
 	 * indents
 	 */
-	if (status == ISC_R_CANCELED)
+	if (status == ISC_R_CANCELED) {
+		/* We're replying with a status code so we still need to
+		* write it out in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 		goto cleanup;
+	}
 
 	/*
 	 * If we have any addresses log what we are doing.
@@ -2969,6 +3085,7 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 	 */
 	if ((reply->ia->num_iasubopt != 0) &&
 	    (reply->buf.reply.msg_type == DHCPV6_REPLY)) {
+		int must_commit = 0;
 		struct iasubopt *tmp;
 		struct data_string *ia_id;
 		int i;
@@ -2979,10 +3096,6 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 			if (tmp->ia != NULL)
 				ia_dereference(&tmp->ia, MDL);
 			ia_reference(&tmp->ia, reply->ia, MDL);
-
-			/* Commit 'hard' bindings. */
-			renew_lease6(tmp->ipv6_pool, tmp);
-			schedule_lease_timeout(tmp->ipv6_pool);
 
 			/* If we have anything to do on commit do it now */
 			if (tmp->on_star.on_commit != NULL) {
@@ -3014,16 +3127,30 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 					     tmp, NULL, reply->opt_state);
 			}
 #endif
-			/* Do our threshold check. */
-			check_pool6_threshold(reply, tmp);
+
+			if (!reuse_lease6(reply, tmp)) {
+				/* Commit 'hard' bindings. */
+				must_commit = 1;
+				renew_lease6(tmp->ipv6_pool, tmp);
+				schedule_lease_timeout(tmp->ipv6_pool);
+
+				/* Do our threshold check. */
+				check_pool6_threshold(reply, tmp);
+			}
 		}
+
+		/* write the IA_TA in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 
 		/* Remove any old ia from the hash. */
 		if (reply->old_ia != NULL) {
-			ia_id = &reply->old_ia->iaid_duid;
-			ia_hash_delete(ia_ta_active,
-				       (unsigned char *)ia_id->data,
-				       ia_id->len, MDL);
+			if (!release_on_roam(reply)) {
+				ia_id = &reply->old_ia->iaid_duid;
+				ia_hash_delete(ia_ta_active,
+					       (unsigned char *)ia_id->data,
+					       ia_id->len, MDL);
+			}
+
 			ia_dereference(&reply->old_ia, MDL);
 		}
 
@@ -3033,8 +3160,14 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 		ia_hash_add(ia_ta_active, (unsigned char *)ia_id->data,
 			    ia_id->len, reply->ia, MDL);
 
-		write_ia(reply->ia);
+		/* If we couldn't reuse all of the iasubopts, we
+		* must update udpate the lease db */
+		if (must_commit) {
+			write_ia(reply->ia);
+		}
 	} else {
+		/* write the IA_TA in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 		schedule_lease_timeout_reply(reply);
 	}
 
@@ -3062,6 +3195,170 @@ reply_process_ia_ta(struct reply_state *reply, struct option_cache *ia) {
 	 * success at higher layers.
 	 */
 	return((status == ISC_R_CANCELED) ? ISC_R_SUCCESS : status);
+}
+/*
+ * Determines if a lease (iasubopt) can be reused without extending it.
+ * If dhcp-cache-threshold is greater than zero (i.e enabled) then
+ * a lease may be reused without going through a full renewal if
+ * it meets all the requirements.  In short it must be active, younger
+ * than the threshold, and not have DNS changes.
+ *
+ * If it is determined that it can be reused, that a call to
+ * shorten_lifetimes() is made to reduce the valid and preferred lifetimes
+ * sent to the client by the age of the lease.
+ *
+ * Returns 1 if lease can be reused, 0 otherwise
+ */
+int
+reuse_lease6(struct reply_state *reply, struct iasubopt *lease) {
+	int threshold = DEFAULT_CACHE_THRESHOLD;
+	struct option_cache* oc = NULL;
+	struct data_string d1;
+	time_t age;
+	time_t limit;
+	int reuse_it = 0;
+
+	/* In order to even qualify for reuse consideration:
+	 * 1. Lease must be active
+	 * 2. It must have been accepted at least once
+	 * 3. DNS info must not have changed */
+	if ((lease->state != FTS_ACTIVE) ||
+	    (lease->hard_lifetime_end_time == 0) ||
+	    (lease->ddns_cb != NULL)) {
+		return (0);
+	}
+
+	/* Look up threshold value */
+	memset(&d1, 0, sizeof(struct data_string));
+	oc = lookup_option(&server_universe, reply->opt_state,
+			   SV_CACHE_THRESHOLD);
+	if (oc &&
+	    evaluate_option_cache(&d1, reply->packet, NULL, NULL,
+				  reply->packet->options, reply->opt_state,
+				  &lease->scope, oc, MDL)) {
+			if (d1.len == 1 && (d1.data[0] < 100)) {
+                                threshold = d1.data[0];
+			}
+
+		data_string_forget(&d1, MDL);
+	}
+
+	if (threshold <= 0) {
+		return (0);
+	}
+
+	if (lease->valid >= MAX_TIME) {
+		/* Infinite leases are always reused.  We have to make
+		* a choice because we cannot determine when they actually
+		* began, so we either always reuse them or we never do. */
+		log_debug ("reusing infinite lease for: %s%s",
+			    pin6_addr(&lease->addr), iasubopt_plen_str(lease));
+		return (1);
+	}
+
+	age = cur_tv.tv_sec - (lease->hard_lifetime_end_time - lease->valid);
+	if (lease->valid <= (INT_MAX / threshold))
+		limit = lease->valid * threshold / 100;
+	else
+		limit = lease->valid / 100 * threshold;
+
+	if (age < limit) {
+		/* Reduce valid/preferred going to the client by age */
+		shorten_lifetimes(reply, lease, age, threshold);
+		reuse_it = 1;
+	}
+
+	return (reuse_it);
+}
+
+/*
+ * Reduces the valid and preferred lifetimes for a given lease (iasubopt)
+ *
+ * We cannot determine until after a iasubopt has been added to
+ * the reply if the lease can be reused. Therefore, when we do reuse a
+ * lease we need a way to alter the lifetimes that will be sent to the client.
+ * That's where this function comes in handy:
+ *
+ * Locate the iasubopt by it's address within the reply the reduce both
+ * the preferred and valid lifetimes by the given number of seconds.
+ *
+ * Note that this function, by necessity, works directly with the
+ * option_cache data. Sort of a no-no but I don't have any better ideas.
+ */
+void shorten_lifetimes(struct reply_state *reply, struct iasubopt *lease,
+		       time_t age, int threshold) {
+	struct option_cache* oc = NULL;
+	int subopt_type;
+	int addr_offset;
+	int pref_offset;
+	int val_offset;
+	int exp_length;
+
+	if (reply->ia->ia_type != D6O_IA_PD) {
+		subopt_type = D6O_IAADDR;
+		addr_offset = IASUBOPT_NA_ADDR_OFFSET;
+		pref_offset = IASUBOPT_NA_PREF_OFFSET;
+		val_offset = IASUBOPT_NA_VALID_OFFSET;
+		exp_length = IASUBOPT_NA_LEN;
+	}
+	else {
+		subopt_type = D6O_IAPREFIX;
+		addr_offset = IASUBOPT_PD_PREFIX_OFFSET;
+		pref_offset = IASUBOPT_PD_PREF_OFFSET;
+		val_offset = IASUBOPT_PD_VALID_OFFSET;
+		exp_length = IASUBOPT_PD_LEN;
+	}
+
+	// loop through the iasubopts for the one that matches this lease
+	oc = lookup_option(&dhcpv6_universe, reply->reply_ia, subopt_type);
+        for (; oc != NULL ; oc = oc->next) {
+		if (oc->data.data == NULL || oc->data.len != exp_length) {
+			/* shouldn't happen */
+			continue;
+		}
+
+		/* If address matches (and for PDs the prefix len matches)
+		* we assume this is our subopt, so update the lifetimes */
+		if (!memcmp(oc->data.data + addr_offset, &lease->addr, 16) &&
+		    (subopt_type != D6O_IAPREFIX ||
+		     (oc->data.data[IASUBOPT_PD_PREFLEN_OFFSET] ==
+		      lease->plen))) {
+			u_int32_t pref_life = getULong(oc->data.data +
+						       pref_offset);
+			u_int32_t valid_life = getULong(oc->data.data +
+							val_offset);
+
+			if (pref_life < MAX_TIME && pref_life > age) {
+				pref_life -= age;
+				putULong((unsigned char*)(oc->data.data) +
+					  pref_offset, pref_life);
+
+				if (reply->min_prefer > pref_life) {
+					reply->min_prefer = pref_life;
+				}
+			}
+
+			if (valid_life < MAX_TIME && valid_life > age) {
+				valid_life -= age;
+				putULong((unsigned char*)(oc->data.data) +
+					 val_offset, valid_life);
+
+				if (reply->min_valid > reply->send_valid) {
+					reply->min_valid = valid_life;
+				}
+			}
+
+			log_debug ("Reusing lease for: %s%s, "
+				   "age %ld secs < %d%%,"
+				   " sending shortened lifetimes -"
+				   " preferred: %u, valid %u",
+				   pin6_addr(&lease->addr),
+				   iasubopt_plen_str(lease),
+				   (long)age, threshold,
+				   pref_life, valid_life);
+			break;
+		}
+	}
 }
 
 /*
@@ -3199,7 +3496,9 @@ find_client_temporaries(struct reply_state *reply) {
 			 * Get an address in this temporary pool.
 			 */
 			status = create_lease6(p, &reply->lease, &attempts,
-					       &reply->client_id, cur_time + 120);
+					       &reply->client_id,
+                                               cur_time + 120);
+
 			if (status != ISC_R_SUCCESS) {
 				log_debug("Unable to get a temporary address.");
 				goto cleanup;
@@ -3516,10 +3815,10 @@ reply_process_is_addressed(struct reply_state *reply,
 	 * The following doesn't work on at least some systems:
 	 * (cur_time + reply->send_valid < cur_time)
 	 */
-	if (reply->send_valid != 0xFFFFFFFF) {
+	if (reply->send_valid != INFINITE_TIME) {
 		time_t test_time = cur_time + reply->send_valid;
 		if (test_time < cur_time)
-			reply->send_valid = 0xFFFFFFFF;
+			reply->send_valid = INFINITE_TIME;
         }
 
 	if (reply->client_prefer == 0)
@@ -3528,7 +3827,7 @@ reply_process_is_addressed(struct reply_state *reply,
 		reply->send_prefer = reply->client_prefer;
 
 	if ((reply->send_prefer >= reply->send_valid) &&
-	    (reply->send_valid != 0xFFFFFFFF))
+	    (reply->send_valid != INFINITE_TIME))
 		reply->send_prefer = (reply->send_valid / 2) +
 				     (reply->send_valid / 8);
 
@@ -3583,7 +3882,7 @@ reply_process_is_addressed(struct reply_state *reply,
 		 * when connecting to the lease file MAX_TIME is
 		 */
 		if (reply->buf.reply.msg_type == DHCPV6_REPLY) {
-			if (reply->send_valid == 0xFFFFFFFF) {
+			if (reply->send_valid == INFINITE_TIME) {
 				reply->lease->soft_lifetime_end_time = MAX_TIME;
 			} else {
 				reply->lease->soft_lifetime_end_time =
@@ -3870,7 +4169,7 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 	 * For each prefix in this IA_PD, decide what to do about it.
 	 */
 	oc = lookup_option(&dhcpv6_universe, packet_ia, D6O_IAPREFIX);
-	reply->min_valid = reply->min_prefer = 0xffffffff;
+	reply->min_valid = reply->min_prefer = INFINITE_TIME;
 	reply->client_valid = reply->client_prefer = 0;
 	reply->preflen = -1;
 	for (; oc != NULL ; oc = oc->next) {
@@ -3950,24 +4249,16 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 			goto cleanup;
 	}
 
-	reply->cursor += store_options6((char *)reply->buf.data + reply->cursor,
-					sizeof(reply->buf) - reply->cursor,
-					reply->reply_ia, reply->packet,
-					required_opts_IA_PD, NULL);
-
-	/* Reset the length of this IA_PD to match what was just written. */
-	putUShort(reply->buf.data + ia_cursor + 2,
-		  reply->cursor - (ia_cursor + 4));
-
-	/* Calculate T1/T2 and stuff them in the reply */
-	set_reply_tee_times(reply, ia_cursor);
-
 	/*
 	 * yes, goto's aren't the best but we also want to avoid extra
 	 * indents
 	 */
-	if (status == ISC_R_CANCELED)
+	if (status == ISC_R_CANCELED) {
+		/* We're replying with a status code so we still need to
+		 * write it out in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 		goto cleanup;
+	}
 
 	/*
 	 * Handle static prefixes, we always log stuff and if it's
@@ -3984,6 +4275,10 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 			 print_hex_1(reply->client_id.len,
 				     reply->client_id.data, 60),
 			 iaid);
+
+		/* Write the lease out in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
+
 		if ((reply->buf.reply.msg_type == DHCPV6_REPLY) &&
 		    (reply->on_star.on_commit != NULL)) {
 			execute_statements(NULL, reply->packet, NULL, NULL,
@@ -4027,9 +4322,14 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 	 * Loop through the assigned dynamic prefixes, referencing the
 	 * prefixes onto this IA_PD rather than any old ones, and updating
 	 * prefix pool timers for each (if any).
+	 *
+	 * If a lease can be reused we skip renewing it or checking the
+	 * pool threshold. If it can't we flag that the IA must be commited
+	 * to the db and do the renewal and pool check.
 	 */
 	if ((reply->buf.reply.msg_type == DHCPV6_REPLY) &&
 	    (reply->ia->num_iasubopt != 0)) {
+		int must_commit = 0;
 		struct iasubopt *tmp;
 		struct data_string *ia_id;
 		int i;
@@ -4040,10 +4340,6 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 			if (tmp->ia != NULL)
 				ia_dereference(&tmp->ia, MDL);
 			ia_reference(&tmp->ia, reply->ia, MDL);
-
-			/* Commit 'hard' bindings. */
-			renew_lease6(tmp->ipv6_pool, tmp);
-			schedule_lease_timeout(tmp->ipv6_pool);
 
 			/* If we have anything to do on commit do it now */
 			if (tmp->on_star.on_commit != NULL) {
@@ -4058,16 +4354,29 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 					(&tmp->on_star.on_commit, MDL);
 			}
 
-			/* Do our threshold check. */
-			check_pool6_threshold(reply, tmp);
+			if (!reuse_lease6(reply, tmp)) {
+				/* Commit 'hard' bindings. */
+				must_commit = 1;
+				renew_lease6(tmp->ipv6_pool, tmp);
+				schedule_lease_timeout(tmp->ipv6_pool);
+
+				/* Do our threshold check. */
+				check_pool6_threshold(reply, tmp);
+			}
 		}
+
+		/* write the IA_PD in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 
 		/* Remove any old ia from the hash. */
 		if (reply->old_ia != NULL) {
-			ia_id = &reply->old_ia->iaid_duid;
-			ia_hash_delete(ia_pd_active,
-				       (unsigned char *)ia_id->data,
-				       ia_id->len, MDL);
+			if (!release_on_roam(reply)) {
+				ia_id = &reply->old_ia->iaid_duid;
+				ia_hash_delete(ia_pd_active,
+					       (unsigned char *)ia_id->data,
+					       ia_id->len, MDL);
+			}
+
 			ia_dereference(&reply->old_ia, MDL);
 		}
 
@@ -4077,8 +4386,14 @@ reply_process_ia_pd(struct reply_state *reply, struct option_cache *ia) {
 		ia_hash_add(ia_pd_active, (unsigned char *)ia_id->data,
 			    ia_id->len, reply->ia, MDL);
 
-		write_ia(reply->ia);
+		/* If we couldn't reuse all of the iasubopts, we
+		* must udpate the lease db */
+		if (must_commit) {
+			write_ia(reply->ia);
+		}
 	} else {
+		/* write the IA_PD in wire-format to the outbound buffer */
+		write_to_packet(reply, ia_cursor);
 		schedule_lease_timeout_reply(reply);
 	}
 
@@ -4615,6 +4930,19 @@ find_client_prefix(struct reply_state *reply) {
 			best_prefix = prefix_compare(reply, prefix,
 						     best_prefix);
 		}
+
+		/*
+		 * If we have prefix length hint and we're not igoring them,
+		 * then toss the best match if it doesn't match the hint,
+		 * unless this is in response to a rebind.  In the latter
+		 * case we're supposed to return it with zero lifetimes.
+		 * (See rt45780) */
+		if (best_prefix && (reply->preflen > 0)
+		    && (prefix_length_mode != PLM_IGNORE)
+		    && (reply->preflen != best_prefix->plen)
+		    && (reply->packet->dhcpv6_msg_type != DHCPV6_REBIND)) {
+			best_prefix = NULL;
+		}
 	}
 
 	/* Try to pick a new prefix if we didn't find one, or if we found an
@@ -4762,10 +5090,10 @@ reply_process_is_prefixed(struct reply_state *reply,
 	 * The following doesn't work on at least some systems:
 	 * (cur_time + reply->send_valid < cur_time)
 	 */
-	if (reply->send_valid != 0xFFFFFFFF) {
+	if (reply->send_valid != INFINITE_TIME) {
 		time_t test_time = cur_time + reply->send_valid;
 		if (test_time < cur_time)
-			reply->send_valid = 0xFFFFFFFF;
+			reply->send_valid = INFINITE_TIME;
         }
 
 	if (reply->client_prefer == 0)
@@ -4774,7 +5102,7 @@ reply_process_is_prefixed(struct reply_state *reply,
 		reply->send_prefer = reply->client_prefer;
 
 	if ((reply->send_prefer >= reply->send_valid) &&
-	    (reply->send_valid != 0xFFFFFFFF))
+	    (reply->send_valid != INFINITE_TIME))
 		reply->send_prefer = (reply->send_valid / 2) +
 				     (reply->send_valid / 8);
 
@@ -4814,7 +5142,7 @@ reply_process_is_prefixed(struct reply_state *reply,
 		 * when connecting to the lease file MAX_TIME is
 		 */
 		if (reply->buf.reply.msg_type == DHCPV6_REPLY) {
-			if (reply->send_valid == 0xFFFFFFFF) {
+			if (reply->send_valid == INFINITE_TIME) {
 				reply->lease->soft_lifetime_end_time = MAX_TIME;
 			} else {
 				reply->lease->soft_lifetime_end_time =
@@ -6544,6 +6872,35 @@ dhcpv6_relay_forw(struct data_string *reply_ret, struct packet *packet) {
 		data_string_forget(&a_opt, MDL);
 	}
 
+#if defined(RELAY_PORT)
+	/*
+	 * Append the relay_source_port option if present.
+	 */
+	oc = lookup_option(&dhcpv6_universe, packet->options,
+			   D6O_RELAY_SOURCE_PORT);
+	if (oc != NULL) {
+		if (!evaluate_option_cache(&a_opt, packet,
+					   NULL, NULL,
+					   packet->options, NULL,
+					   &global_scope, oc, MDL)) {
+			log_error("dhcpv6_relay_forw: error evaluating "
+				  "Relay Source Port.");
+			goto exit;
+		}
+		if (!save_option_buffer(&dhcpv6_universe, opt_state, NULL,
+					(unsigned char *)a_opt.data,
+					a_opt.len,
+					D6O_RELAY_SOURCE_PORT, 0)) {
+			log_error("dhcpv6_relay_forw: error saving "
+				  "Relay Source Port.");
+			goto exit;
+		}
+		data_string_forget(&a_opt, MDL);
+
+		packet->relay_source_port = ISC_TRUE;
+	}
+#endif
+
 	/*
 	 * Append our encapsulated stuff for caller.
 	 */
@@ -6837,6 +7194,35 @@ dhcp4o6_relay_forw(struct data_string *reply_ret, struct packet *packet) {
 		data_string_forget(&a_opt, MDL);
 	}
 
+#if defined(RELAY_PORT)
+	/*
+	 * Append the relay_source_port option if present.
+	 */
+	oc = lookup_option(&dhcpv6_universe, packet->options,
+			   D6O_RELAY_SOURCE_PORT);
+	if (oc != NULL) {
+		if (!evaluate_option_cache(&a_opt, packet,
+					   NULL, NULL,
+					   packet->options, NULL,
+					   &global_scope, oc, MDL)) {
+			log_error("dhcpv4o6_relay_forw: error evaluating "
+				  "Relay Source Port.");
+			goto exit;
+		}
+		if (!save_option_buffer(&dhcpv6_universe, opt_state, NULL,
+					(unsigned char *)a_opt.data,
+					a_opt.len,
+					D6O_RELAY_SOURCE_PORT, 0)) {
+			log_error("dhcpv4o6_relay_forw: error saving "
+				  "Relay Source Port.");
+			goto exit;
+		}
+		data_string_forget(&a_opt, MDL);
+
+		packet->relay_source_port = ISC_TRUE;
+	}
+#endif
+
 	/*
 	 * Append our encapsulated stuff for caller.
 	 */
@@ -7126,12 +7512,13 @@ exit:
  * \brief Forward a DHCPv4-query message to the DHCPv4 side
  *  (DHCPv6 server function)
  *
- * Format: interface:16 + address:16 + DHCPv6 DHCPv4-query message
+ * Format: interface:16 + address:16 + udp:4 + DHCPv6 DHCPv4-query message
  *
  * \brief packet the DHCPv6 DHCPv4-query message
  */
 static void forw_dhcpv4_query(struct packet *packet) {
 	struct data_string ds;
+	struct udp_data4o6 udp_data;
 	unsigned len;
 	int cc;
 
@@ -7148,7 +7535,7 @@ static void forw_dhcpv4_query(struct packet *packet) {
 	}
 
 	/* Get a buffer. */
-	len = packet->packet_length + 32;
+	len = packet->packet_length + 36;
 	memset(&ds, 0, sizeof(ds));
 	if (!buffer_allocate(&ds.buffer, len, MDL)) {
 		log_error("forw_dhcpv4_query: "
@@ -7162,7 +7549,10 @@ static void forw_dhcpv4_query(struct packet *packet) {
 	strncpy((char *)ds.buffer->data, packet->interface->name, 16);
 	memcpy(ds.buffer->data + 16,
 	       packet->client_addr.iabuf, 16);
-	memcpy(ds.buffer->data + 32,
+	memset(&udp_data, 0, sizeof(udp_data));
+	udp_data.src_port = packet->client_port;
+	memcpy(ds.buffer->data + 32, &udp_data, 4);
+	memcpy(ds.buffer->data + 36,
 	       (unsigned char *)packet->raw,
 	       packet->packet_length);
 
@@ -7380,6 +7770,15 @@ dhcpv6(struct packet *packet) {
 		to_addr.sin6_port = packet->client_port;
 #endif
 
+#if defined(RELAY_PORT)
+		/*
+		 * Check relay source port.
+		 */
+		if (packet->relay_source_port) {
+			to_addr.sin6_port = packet->client_port;
+		}
+#endif
+
 		memcpy(&to_addr.sin6_addr, packet->client_addr.iabuf,
 		       sizeof(to_addr.sin6_addr));
 
@@ -7406,7 +7805,7 @@ dhcpv6(struct packet *packet) {
  * Receive a message with a DHCPv4-query inside from the DHCPv6 server.
  * (code copied from \ref do_packet6() \ref and dhcpv6())
  *
- * Format: interface:16 + address:16 + DHCPv6 DHCPv4-query message
+ * Format: interface:16 + address:16 + udp:4 + DHCPv6 DHCPv4-query message
  *
  * \param raw the DHCPv6 DHCPv4-query message raw content
  */
@@ -7420,6 +7819,7 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 	const struct dhcpv4_over_dhcpv6_packet *msg;
 	struct data_string reply;
 	struct data_string ds;
+	struct udp_data4o6 udp_data;
 	unsigned len;
 	int cc;
 
@@ -7438,14 +7838,17 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 	iaddr.len = 16;
 	memcpy(iaddr.iabuf, raw->data + 16, 16);
 
+	memset(&udp_data, 0, sizeof(udp_data));
+	memcpy(&udp_data, raw->data + 32, 4);
+
 	/*
 	 * From do_packet6().
 	 */
 
-	if (!packet6_len_okay((char *)raw->data + 32, raw->len - 32)) {
+	if (!packet6_len_okay((char *)raw->data + 36, raw->len - 36)) {
 		log_error("recv_dhcpv4_query: "
 			 "short packet from %s, len %d, dropped",
-			 piaddr(iaddr), raw->len - 32);
+			 piaddr(iaddr), raw->len - 36);
 		return;
 	}
 
@@ -7464,18 +7867,18 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 		return;
 	}
 
-	packet->raw = (struct dhcp_packet *)(raw->data + 32);
-	packet->packet_length = raw->len - 32;
-	packet->client_port = remote_port;
+	packet->raw = (struct dhcp_packet *)(raw->data + 36);
+	packet->packet_length = raw->len - 36;
+	packet->client_port = udp_data.src_port;
 	packet->client_addr = iaddr;
 	interface_reference(&packet->interface, ip, MDL);
 
-	msg_type = raw->data[32];
+	msg_type = raw->data[36];
 	if ((msg_type == DHCPV6_RELAY_FORW) ||
 	    (msg_type == DHCPV6_RELAY_REPL)) {
 		int relaylen =
 		    (int)(offsetof(struct dhcpv6_relay_packet, options));
-		relay = (const struct dhcpv6_relay_packet *)(raw->data + 32);
+		relay = (const struct dhcpv6_relay_packet *)(raw->data + 36);
 		packet->dhcpv6_msg_type = relay->msg_type;
 
 		/* relay-specific data */
@@ -7487,7 +7890,7 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 
 		if (!parse_option_buffer(packet->options,
 					 relay->options,
-					 raw->len - 32 - relaylen,
+					 raw->len - 36 - relaylen,
 					 &dhcpv6_universe)) {
 			/* no logging here, as parse_option_buffer() logs all
 			   cases where it fails */
@@ -7498,7 +7901,7 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 		   (msg_type == DHCPV6_DHCPV4_RESPONSE)) {
 		int msglen =
 		    (int)(offsetof(struct dhcpv4_over_dhcpv6_packet, options));
-		msg = (struct dhcpv4_over_dhcpv6_packet *)(raw->data + 32);
+		msg = (struct dhcpv4_over_dhcpv6_packet *)(raw->data + 36);
 		packet->dhcpv6_msg_type = msg->msg_type;
 
 		/* message-specific data */
@@ -7507,7 +7910,7 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 
 		if (!parse_option_buffer(packet->options,
 					 msg->options,
-					 raw->len - 32 - msglen,
+					 raw->len - 36 - msglen,
 					 &dhcpv6_universe)) {
 			/* no logging here, as parse_option_buffer() logs all
 			   cases where it fails */
@@ -7568,18 +7971,19 @@ static void recv_dhcpv4_query(struct data_string *raw) {
          */
 	build_dhcpv6_reply(&reply, packet);
 
-	packet_dereference(&packet, MDL);
-
-	if (reply.data == NULL)
+	if (reply.data == NULL) {
+		packet_dereference(&packet, MDL);
 		return;
+	}
 
 	/*
 	 * Forward the response.
 	 */
-	len = reply.len + 32;
+	len = reply.len + 36;
 	memset(&ds, 0, sizeof(ds));
 	if (!buffer_allocate(&ds.buffer, len, MDL)) {
 		log_error("recv_dhcpv4_query: no memory.");
+		packet_dereference(&packet, MDL);
 		return;
 	}
 	ds.data = ds.buffer->data;
@@ -7587,7 +7991,15 @@ static void recv_dhcpv4_query(struct data_string *raw) {
 
 	memcpy(ds.buffer->data, name, 16);
 	memcpy(ds.buffer->data + 16, iaddr.iabuf, 16);
-	memcpy(ds.buffer->data + 32, reply.data, reply.len);
+	udp_data.rsp_opt_exist = packet->relay_source_port ? 1 : 0;
+	memcpy(ds.buffer->data + 32, &udp_data, 4);
+	memcpy(ds.buffer->data + 36, reply.data, reply.len);
+
+	/*
+	 * Now we can release the packet.
+	 */
+	packet_dereference(&packet, MDL);
+
 	cc = send(dhcp4o6_fd, ds.data, ds.len, 0);
 	if (cc < 0)
 		log_error("recv_dhcpv4_query: send(): %m");
@@ -8038,8 +8450,10 @@ set_reply_tee_times(struct reply_state* reply, unsigned ia_cursor)
 	} else if (set_tee_times) {
 		/* Setting them is enabled so T1 is either infinite or
 		 * 0.5 * the shortest preferred lifetime in the IA_XX  */
-		reply->renew = (reply->min_prefer == 0xFFFFFFFF ? 0xFFFFFFFF
-				 : reply->min_prefer / 2);
+		if (reply->min_prefer == INFINITE_TIME)
+			reply->renew = INFINITE_TIME;
+		else
+			reply->renew = reply->min_prefer / 2;
 	} else {
 		/* Default is to let the client choose */
 		reply->renew = 0;
@@ -8071,8 +8485,10 @@ set_reply_tee_times(struct reply_state* reply, unsigned ia_cursor)
 	} else if (set_tee_times) {
 		/* Setting them is enabled so T2 is either infinite or
 		 * 0.8 * the shortest preferred lifetime in the reply */
-		reply->rebind = (reply->min_prefer == 0xFFFFFFFF ? 0xFFFFFFFF
-				 : (reply->min_prefer / 5) * 4);
+		if (reply->min_prefer == INFINITE_TIME)
+			reply->rebind = INFINITE_TIME;
+		else
+			reply->rebind = (reply->min_prefer / 5) * 4;
 	} else {
 		/* Default is to let the client choose */
 		reply->rebind = 0;
@@ -8081,5 +8497,126 @@ set_reply_tee_times(struct reply_state* reply, unsigned ia_cursor)
 	putULong(reply->buf.data + ia_cursor + 12, reply->rebind);
 }
 
+/*
+ * Releases the iasubopts in the pre-existing IA, if they are not in
+ * the same shared-network as the new IA.
+ *
+ * returns 1 if the release was done, 0 otherwise
+ */
+int
+release_on_roam(struct reply_state* reply) {
+	struct ia_xx* old_ia = reply->old_ia;
+	struct iasubopt *lease = NULL;
+	int i;
+
+	if ((!do_release_on_roam) || old_ia == NULL
+	    || old_ia->num_iasubopt <= 0) {
+		return(0);
+	}
+
+	/* If the old shared-network and new are the same, client hasn't
+	* roamed, nothing to do. We only check the first one because you
+	* cannot have iasubopts on different shared-networks within a
+	* single ia. */
+	lease = old_ia->iasubopt[0];
+	if (lease->ipv6_pool->shared_network == reply->shared) {
+		return (0);
+	}
+
+	/* Old and new are on different shared networks so the client must
+	* roamed. Release the old leases. */
+	for (i = 0;  i < old_ia->num_iasubopt; i++) {
+		lease = old_ia->iasubopt[i];
+
+		log_info("Client: %s roamed to new network,"
+			 " releasing lease: %s%s",
+			 print_hex_1(reply->client_id.len,
+				     reply->client_id.data, 60),
+			 pin6_addr(&lease->addr), iasubopt_plen_str(lease));
+
+                release_lease6(lease->ipv6_pool, lease);
+                lease->ia->cltt = cur_time;
+                write_ia(lease->ia);
+        }
+
+	return (1);
+}
+
+/*
+ * Convenience function which returns a string (static buffer)
+ * containing either a "/" followed by the prefix length or an
+ * empty string depending on the lease type
+ */
+const char *iasubopt_plen_str(struct iasubopt *lease) {
+	static char prefix_buf[16];
+	*prefix_buf = 0;
+	if ((lease->ia) && (lease->ia->ia_type == D6O_IA_PD)) {
+		sprintf(prefix_buf, "/%-d", lease->plen);
+	}
+
+	return (prefix_buf);
+}
+
+#ifdef NSUPDATE
+/*
+ * Initiates DDNS updates for static v6 leases if configured to do so.
+ *
+ * The function, which must be called after the IA has been written to the
+ * packet, adds an iasubopt to the IA for static lease.  This is done so we
+ * have an iasubopt to pass into ddns_updates().  A reference to the IA is
+ * added to the DDNS control block to ensure it and it's iasubopt remain in
+ * scope until the update is complete.
+ *
+ */
+void ddns_update_static6(struct reply_state* reply) {
+	struct iasubopt *iasub = NULL;
+	struct binding_scope *scope = NULL;
+	struct option_cache *oc = NULL;
+
+	oc = lookup_option(&server_universe, reply->opt_state, SV_DDNS_UPDATES);
+	if ((oc != NULL) &&
+		(evaluate_boolean_option_cache(NULL, reply->packet, NULL, NULL,
+					       reply->packet->options,
+                                               reply->opt_state, NULL,
+                                               oc, MDL) == 0)) {
+		return;
+	}
+
+	oc = lookup_option(&server_universe, reply->opt_state,
+			   SV_UPDATE_STATIC_LEASES);
+	if ((oc == NULL) ||
+		(evaluate_boolean_option_cache(NULL, reply->packet,
+						     NULL, NULL,
+						     reply->packet->options,
+						     reply->opt_state, NULL,
+						     oc, MDL) == 0)) {
+		return;
+	}
+
+	if (iasubopt_allocate(&iasub, MDL) != ISC_R_SUCCESS) {
+		log_fatal("No memory for iasubopt.");
+	}
+
+	if (ia_add_iasubopt(reply->ia, iasub, MDL) != ISC_R_SUCCESS) {
+		log_fatal("Could not add iasubopt.");
+	}
+
+	ia_reference(&iasub->ia, reply->ia, MDL);
+
+	memcpy(iasub->addr.s6_addr, reply->fixed.data, 16);
+	iasub->plen = 0;
+	iasub->prefer =  MAX_TIME;
+	iasub->valid =  MAX_TIME;
+	iasub->static_lease = 1;
+
+	if (!binding_scope_allocate(&scope, MDL)) {
+		log_fatal("Out of memory for binding scope.");
+	}
+
+	binding_scope_reference(&iasub->scope, scope, MDL);
+
+	ddns_updates(reply->packet, NULL, NULL, iasub, NULL, reply->opt_state);
+}
+#endif /* NSUPDATE */
 
 #endif /* DHCPv6 */

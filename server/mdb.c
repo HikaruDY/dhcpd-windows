@@ -3,12 +3,12 @@
    Server-specific in-memory database support. */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -1808,30 +1808,40 @@ void abandon_lease (lease, message)
 	struct lease *lease;
 	const char *message;
 {
-	struct lease *lt = (struct lease *)0;
+	struct lease *lt = NULL;
 #if defined (NSUPDATE)
 	(void) ddns_removals(lease, NULL, NULL, ISC_FALSE);
 #endif
 
-	if (!lease_copy (&lt, lease, MDL))
+	if (!lease_copy(&lt, lease, MDL)) {
 		return;
+	}
 
-	if (lt->scope)
+	if (lt->scope) {
 		binding_scope_dereference(&lt->scope, MDL);
+	}
 
-	lt -> ends = cur_time; /* XXX */
-	lt -> next_binding_state = FTS_ABANDONED;
+	/* Calculate the abandone expiry time.  If it wraps,
+ 	 * use the maximum expiry time. */
+	lt->ends = cur_time + abandon_lease_time;
+	if (lt->ends < cur_time || lt->ends > MAX_TIME) {
+		lt->ends = MAX_TIME;
+	}
 
-	log_error ("Abandoning IP address %s: %s",
-	      piaddr (lease -> ip_addr), message);
-	lt -> hardware_addr.hlen = 0;
-	if (lt -> uid && lt -> uid != lt -> uid_buf)
-		dfree (lt -> uid, MDL);
-	lt -> uid = (unsigned char *)0;
-	lt -> uid_len = 0;
-	lt -> uid_max = 0;
-	supersede_lease (lease, lt, 1, 1, 1, 0);
-	lease_dereference (&lt, MDL);
+	lt->next_binding_state = FTS_ABANDONED;
+
+	log_error ("Abandoning IP address %s: %s", piaddr(lease->ip_addr),
+                    message);
+	lt->hardware_addr.hlen = 0;
+	if (lt->uid && lt->uid != lt->uid_buf) {
+		dfree(lt->uid, MDL);
+	}
+
+	lt->uid = NULL;
+	lt->uid_len = 0;
+	lt->uid_max = 0;
+	supersede_lease(lease, lt, 1, 1, 1, 0);
+	lease_dereference(&lt, MDL);
 }
 
 #if 0

@@ -3,12 +3,12 @@
    I/O dispatcher. */
 
 /*
- * Copyright (c) 2004,2007-2009,2013-2014 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -134,12 +134,11 @@ omapi_iscsock_cb(isc_task_t   *task,
 	 * walk through the io states list, if our object is on there
 	 * service it.  if not ignore it.
 	 */
-	for (obj = omapi_io_states.next;
-	     (obj != NULL) && (obj->next != NULL);
-	     obj = obj->next) {
+	for (obj = omapi_io_states.next; obj != NULL; obj = obj->next) {
 		if (obj == cbarg)
 			break;
 	}
+
 	if (obj == NULL) {
 		return(0);
 	}

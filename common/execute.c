@@ -3,12 +3,12 @@
    Support for executable statements. */
 
 /*
- * Copyright (c) 2004-2016 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1998-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -27,6 +27,7 @@
  */
 
 #include "dhcpd.h"
+#include <isc/util.h>
 #include <omapip/omapip_p.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -583,14 +584,14 @@ void execute_statements_in_scope (result, packet,
 	   scope, we are done.   This is so that if somebody does something
 	   like this, it does the expected thing:
 
-	        domain-name "fugue.com";
+	        domain-name "example.com";
 		shared-network FOO {
 			host bar {
-				domain-name "othello.fugue.com";
+				domain-name "othello.example.com";
 				fixed-address 10.20.30.40;
 			}
 			subnet 10.20.30.0 netmask 255.255.255.0 {
-				domain-name "manhattan.fugue.com";
+				domain-name "manhattan.example.com";
 			}
 		}
 

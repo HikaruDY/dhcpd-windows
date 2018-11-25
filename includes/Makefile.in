@@ -169,6 +169,7 @@ ETAGS = etags
 CTAGS = ctags
 am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/config.h.in
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
+A = @A@
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
@@ -182,7 +183,14 @@ AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
 BINDCONFIG = @BINDCONFIG@
 BINDDIR = @BINDDIR@
+BINDIOMUX = @BINDIOMUX@
+BINDLIBDNSDIR = @BINDLIBDNSDIR@
+BINDLIBIRSDIR = @BINDLIBIRSDIR@
+BINDLIBISCCFGDIR = @BINDLIBISCCFGDIR@
+BINDLIBISCDIR = @BINDLIBISCDIR@
+BINDLT = @BINDLT@
 BINDSRCDIR = @BINDSRCDIR@
+BINDSUBDIR = @BINDSUBDIR@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -191,7 +199,10 @@ CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DHLIBS = @DHLIBS@
 DISTCHECK_ATF_CONFIGURE_FLAG = @DISTCHECK_ATF_CONFIGURE_FLAG@
+DISTCHECK_LIBBIND_CONFIGURE_FLAG = @DISTCHECK_LIBBIND_CONFIGURE_FLAG@
+DISTCHECK_LIBTOOL_CONFIGURE_FLAG = @DISTCHECK_LIBTOOL_CONFIGURE_FLAG@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -221,10 +232,12 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
+Q = @Q@
 RANLIB = @RANLIB@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
+UNITTESTS = @UNITTESTS@
 VERSION = @VERSION@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
@@ -281,11 +294,10 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 nobase_include_HEADERS = omapip/alloc.h omapip/buffer.h omapip/convert.h \
 			 omapip/hash.h omapip/isclib.h omapip/omapip.h \
-			 omapip/omapip_p.h omapip/result.h omapip/trace.h \
-			 isc-dhcp/dst.h
+			 omapip/omapip_p.h omapip/result.h omapip/trace.h
 
 EXTRA_DIST = cdefs.h ctrace.h dhcp.h dhcp6.h dhcpd.h dhctoken.h failover.h \
-	     heap.h inet.h minires.h osdep.h site.h statement.h tree.h \
+	     heap.h inet.h ns_name.h osdep.h site.h statement.h tree.h \
 	     t_api.h \
 	     ldap_casa.h ldap_krb_helper.h \
 	     arpa/nameser.h arpa/nameser_compat.h \

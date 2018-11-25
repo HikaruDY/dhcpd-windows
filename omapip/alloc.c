@@ -4,14 +4,12 @@
    protocol... */
 
 /*
- * Copyright (c) 2012,2014 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2009-2010 by Internet Systems Consortium, Inc. ("ISC")
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2017 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
@@ -52,10 +50,13 @@ int rc_history_count;
 static void print_rc_hist_entry (int);
 #endif
 
+static int dmalloc_failures;
+static char out_of_memory[] = "Run out of memory.";
+
 void *
-dmalloc(unsigned size, const char *file, int line) {
+dmalloc(size_t size, const char *file, int line) {
 	unsigned char *foo;
-	unsigned len;
+	size_t len;
 	void **bar;
 #if defined (DEBUG_MEMORY_LEAKAGE) || defined (DEBUG_MALLOC_POOL) || \
 		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)
@@ -69,8 +70,21 @@ dmalloc(unsigned size, const char *file, int line) {
 
 	foo = malloc(len);
 
-	if (!foo)
+	if (!foo) {
+		dmalloc_failures++;
+		if (dmalloc_failures > 10) {
+			/* In case log_fatal() returns here */
+			IGNORE_RET(write(STDERR_FILENO,
+					 out_of_memory,
+					 strlen(out_of_memory)));
+			IGNORE_RET(write(STDERR_FILENO, "\n", 1));
+			exit(1);
+		} else if (dmalloc_failures >= 10) {
+			/* Something went wrong beyond repair. */
+			log_fatal("Fatal error: out of memory.");
+		}
 		return NULL;
+	}
 	bar = (void *)(foo + DMDOFFSET);
 	memset (bar, 0, size);
 
